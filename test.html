@@ -1,801 +1,565 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Register & Recognize Face</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register & Recognize Face</title>
+    
+    <!-- Load face-api.js for local detection and Socket.IO for receiving data -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
-        <link rel="stylesheet" href="./style-out.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+            width: 100vw;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: center;
+            font-family: 'Inter', sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            overflow-y: auto;
+        }
 
-        <script src="./node_modules/face-api.js/dist/face-api.js"></script>
-        <script src="./node_modules/socket.io/client-dist/socket.io.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js"></script>
+        h1 {
+            margin-bottom: 1rem;
+            font-weight: 600;
+            color: #ffffff;
+        }
 
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link
-            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-            rel="stylesheet"
-        />
+        .main-container {
+            width: 100%;
+            max-width: 1200px; /* Wider container for side-by-side view */
+        }
+        
+        .ui-section {
+            background-color: #1e1e1e;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+            margin-bottom: 2rem;
+        }
 
-        <style>
-            /* Custom styles that cannot be directly translated to Tailwind or need specific handling */
-            body {
-                font-family: "Inter", sans-serif;
-                -webkit-font-smoothing: antialiased;
-                -moz-osx-font-smoothing: grayscale;
-            }
+        .ui-section h2 {
+            text-align: center; margin-top: 0; font-weight: 500;
+        }
 
-            /* Spinner Animation (can be customized with Tailwind but for direct translation, keeping CSS keyframes) */
-            @keyframes spin {
-                0% {
-                    transform: rotate(0deg);
-                }
-                100% {
-                    transform: rotate(360deg);
-                }
-            }
-            #loader {
-                display: none;
-                border: 5px solid #f3f3f3;
-                border-radius: 50%;
-                border-top: 5px solid #3498db;
-                width: 50px;
-                height: 50px;
-                animation: spin 1s linear infinite;
-                margin: 50px auto;
-            }
+        .input-group {
+            display: flex; flex-direction: column; margin-bottom: 1.5rem;
+        }
 
-            /* Video and Canvas overlay for face detection */
-            .video-container video,
-            .video-container canvas {
-                transform: scaleX(-1); /* Keep the flip for camera feed */
-            }
+        .input-group label {
+            margin-bottom: 0.5rem; font-size: 0.9rem; color: #bbbbbb;
+        }
+        
+        input[type="file"] {
+            width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid #444;
+            background-color: #2c2c2c; color: #ffffff; font-size: 1rem; box-sizing: border-box;
+        }
+        
+        input[type="file"]::file-selector-button {
+            background-color: #007bff; color: white; border: none; padding: 0.5rem 1rem;
+            border-radius: 6px; cursor: pointer; transition: background-color 0.2s;
+        }
 
-            /* Animation for new log items */
-            @keyframes fadeInDown {
-                from {
-                    opacity: 0;
-                    transform: translateY(-20px);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-            }
-            .animate-fade-in-down {
-                animation: fadeInDown 0.5s ease-out forwards;
-            }
+        input[type="file"]::file-selector-button:hover { background-color: #0056b3; }
 
-            /* Specific style for the video container aspect ratio */
-            .video-aspect-ratio {
-                position: relative;
-                width: 100%;
-                padding-top: 75%; /* 4:3 Aspect Ratio (height / width * 100) */
-            }
-            .video-aspect-ratio video,
-            .video-aspect-ratio canvas {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-            }
+        .button {
+            padding: 0.8rem 1.5rem; border: none; border-radius: 8px;
+            background: linear-gradient(90deg, #007bff, #0056b3);
+            color: white; font-size: 1.1rem; cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-weight: 500; width: 100%; text-align: center;
+        }
+        
+        .button:disabled { background: #555; cursor: not-allowed; }
+        .button:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0, 123, 255, 0.4); }
+        
+        .divider {
+            text-align: center; color: #888; margin: 2rem 0; position: relative;
+        }
+        .divider::before, .divider::after {
+            content: ''; position: absolute; top: 50%; width: 40%; height: 1px; background: #444;
+        }
+        .divider::before { left: 0; }
+        .divider::after { right: 0; }
 
-            /* Toggle Buttons Redesign */
-            #toggle-buttons-card {
-                position: relative; /* Needed for absolute positioning of indicator */
-                overflow: hidden; /* Hide indicator if it goes out of bounds during animation */
-            }
+        /* --- Live View Layout --- */
+        #live-view-container {
+            display: none; /* Hidden until recognition starts */
+            flex-direction: row;
+            gap: 2rem;
+            align-items: flex-start;
+        }
 
-            .toggle-button {
-                width: 100%; /* Full width */
-                padding-top: 1.5rem; /* Enlarge a bit (py-3 from Tailwind) */
-                padding-bottom: 1.5rem; /* Enlarge a bit (py-3 from Tailwind) */
-                background-color: #1a202c; /* Darker background color (gray-900) */
-                color: #e2e8f0; /* Light text color */
-                font-size: 1.25rem; /* Larger font size */
-                font-weight: 600; /* Semibold */
-                border-radius: 0.75rem; /* Rounded corners */
-                margin-bottom: 0.5rem; /* Tight gap */
-                transition: background-color 0.3s ease, transform 0.1s ease-out; /* Smooth transition for color and tap feedback */
-                position: relative;
-                z-index: 1; /* Ensure buttons are above the indicator */
-            }
+        #recognition-section { flex: 2; margin-bottom: 0; } /* Takes more space */
+        #details-section { flex: 1; margin-bottom: 0; } /* Takes less space */
 
-            .toggle-button:last-child {
-                margin-bottom: 0; /* No margin on the last button */
-            }
+        .video-container {
+            position: relative; width: 100%; padding-top: 77.78%;
+            border-radius: 12px; overflow: hidden; background-color: #333;
+        }
 
-            .toggle-button.active {
-                background-color: #3182ce; /* Slightly brighter active color (blue-600) */
-                color: #ffffff; /* White text for active */
-            }
+        video, canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;
+            transform: scaleX(-1);
+        }
 
-            /* Indicator Styles */
-            #indicator {
-                position: absolute;
-                left: 0;
-                width: 100%; /* Make it span the width of the card for positioning */
-                height: var(
-                    --button-height,
-                    64px
-                ); /* Will be set dynamically by JS, default to button height */
-                z-index: 0; /* Behind the buttons */
-                pointer-events: none; /* Allows clicks to pass through to buttons */
-            }
+        /* --- Details Card Styling --- */
+        #details-card-content { display: none; }
+        #details-image {
+            width: 100%; border-radius: 8px; margin-bottom: 1.5rem;
+            border: 2px solid #444;
+        }
+        .details-text p {
+            margin: 0.5rem 0; font-size: 1.1rem;
+            padding: 0.5rem; border-radius: 6px; background-color: #2c2c2c;
+            word-wrap: break-word; /* Ensure long values wrap */
+        }
+        .details-text p strong { color: #00aaff; }
+        
+        /* Loading Spinner */
+        #loader {
+            display: none;
+            border: 5px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 5px solid #3498db;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 50px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        #save-section { display: none; }
+        #status-message {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background-color: rgba(0,0,0,0.8); color: white; padding: 10px 20px;
+            border-radius: 8px; z-index: 100; display: none; font-size: 1rem;
+            backdrop-filter: blur(5px);
+        }
 
-            #indicator::before,
-            #indicator::after {
-                content: "";
-                position: absolute;
-                width: 0;
-                height: 0;
-                border-style: solid;
-                top: 50%;
-                transform: translateY(-50%);
+        /* Responsive layout for smaller screens */
+        @media (max-width: 900px) {
+            #live-view-container {
+                flex-direction: column;
             }
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="main-container">
+        <h1>Face Recognition</h1>
+        <div id="status-message">Loading AI Models...</div>
 
-            #indicator::before {
-                border-width: 10px 10px 10px 0; /* right-pointing triangle */
-                border-color: transparent #3182ce transparent transparent; /* active color */
-                left: -10px; /* Position to the left center of the indicator */
-            }
+        <div id="registration-section" class="ui-section">
+            <h2>Manage Face Data</h2>
+            <div class="input-group">
+                <label for="image-upload">Method A: Add or Update Faces from Images</label>
+                <input type="file" id="image-upload" accept="image/png, image/jpeg" multiple>
+            </div>
+            <button id="register-button" class="button" disabled>Add/Update from Images</button>
+            <div class="divider">OR</div>
+            <div class="input-group">
+                <label for="json-upload">Method B: Replace All with Saved Data</label>
+                <input type="file" id="json-upload" accept="application/json">
+            </div>
+            <button id="load-json-button" class="button" disabled>Replace with File</button>
+        </div>
+        
+        <div id="save-section" class="ui-section">
+            <h2>Save Current Face Data</h2>
+            <p>You can save all currently registered face data to a file for fast loading next time.</p>
+            <button id="save-json-button" class="button">Save All Face Data</button>
+        </div>
 
-            #indicator::after {
-                border-width: 10px 0 10px 10px; /* left-pointing triangle */
-                border-color: transparent transparent transparent #3182ce; /* active color */
-                right: -10px; /* Position to the right center of the indicator */
-            }
-        </style>
-    </head>
-    <body
-        class="m-0 p-5 box-border w-screen h-screen flex flex-col justify-start items-center bg-gray-900 text-gray-200 overflow-hidden"
-    >
-        <div class="main-container w-full h-[100dvh]">
-            <div
-                id="status-message"
-                class="fixed top-20 left-1/2 -translate-x-1/2 bg-black bg-opacity-80 text-white px-5 py-2 rounded-lg z-50 hidden backdrop-blur-sm text-base"
-            >
-                Loading AI Models...
+        <div id="live-view-container">
+            <div id="recognition-section" class="ui-section">
+                <h2>Live Recognition</h2>
+                <div class="video-container">
+                    <video id="video" autoplay muted playsinline></video>
+                    <canvas id="canvas"></canvas>
+                </div>
             </div>
 
-            <div class="grid grid-cols-5 gap-4 h-full">
-                <div class="col-span-1 min-h-[100px]">
-                    <div
-                        class="ui-section bg-gray-800 p-8 rounded-xl shadow-lg h-full flex items-center justify-center text-gray-400"
-                    >
-                        Empty Card
-                    </div>
-                </div>
-
-                <div class="col-span-3">
-                    <div
-                        id="recognition-status"
-                        class="ui-section bg-gray-700 p-8 rounded-xl shadow-lg text-center font-bold text-5xl transition-colors duration-300 min-h-[100px] flex items-center justify-center"
-                    >
-                        IDLE
-                    </div>
-                </div>
-
-                <div
-                    id="details-section"
-                    class="col-span-1 row-span-2 ui-section bg-gray-800 p-8 rounded-xl shadow-2xl"
-                >
-                    <div id="loader"></div>
-                    <div id="details-card-content">
-                        <img
-                            id="details-image"
-                            src="https://placehold.co/400x400/2c2c2c/e0e0e0?text=No+Detection"
-                            alt="Detected Person"
-                            class="w-full rounded-lg mb-6 border-2 border-gray-700 object-cover aspect-square"
-                        />
-                        <div class="details-text">
-                            <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
-                                <strong>Name:</strong>
-                                <span id="details-name" class="text-blue-400"
-                                    >N/A</span
-                                >
-                            </p>
-                            <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
-                                <strong>Category:</strong>
-                                <span
-                                    id="details-category"
-                                    class="text-blue-400"
-                                    >N/A</span
-                                >
-                            </p>
-                            <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
-                                <strong>No. Banduan:</strong>
-                                <span id="details-banduan" class="text-blue-400"
-                                    >N/A</span
-                                >
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-span-1 flex flex-col gap-4">
-                    <div
-                        id="toggle-buttons-card"
-                        class="ui-section bg-gray-800 p-8 rounded-xl shadow-2xl h-full flex flex-col justify-around"
-                    >
-                        <h3 class="text-xl font-semibold mb-4 text-center">
-                            Actions
-                        </h3>
-                        <div id="indicator"></div>
-                        <button class="toggle-button" data-index="0">
-                            Toggle 1
-                        </button>
-                        <button class="toggle-button" data-index="1">
-                            Toggle 2
-                        </button>
-                        <button class="toggle-button" data-index="2">
-                            Toggle 3
-                        </button>
-                        <button class="toggle-button" data-index="3">
-                            Toggle 4
-                        </button>
-                        <button class="toggle-button" data-index="4">
-                            Toggle 5
-                        </button>
-                    </div>
-                </div>
-
-                <div class="col-span-3 flex flex-col gap-8">
-                    <div
-                        id="recognition-section"
-                        class="ui-section bg-gray-800 p-8 rounded-xl shadow-2xl h-full"
-                    >
-                        <div
-                            class="video-container relative rounded-xl overflow-hidden bg-gray-700 h-full video-aspect-ratio"
-                        >
-                            <video
-                                id="video"
-                                autoplay
-                                muted
-                                playsinline
-                            ></video>
-                            <canvas id="canvas"></canvas>
-                        </div>
+            <div id="details-section" class="ui-section">
+                <h2>Detected Person Details</h2>
+                <div id="loader"></div>
+                <div id="details-card-content">
+                    <img id="details-image" src="" alt="Detected Person">
+                    <div class="details-text" id="details-text-container">
+                        <!-- Details will be populated here by JavaScript -->
                     </div>
                 </div>
             </div>
         </div>
+    </div>
 
-        <script>
-            // DOM Elements
-            const recognitionStatus =
-                    document.getElementById("recognition-status"),
-                video = document.getElementById("video"),
-                canvas = document.getElementById("canvas"),
-                statusMessage = document.getElementById("status-message"), // Global status
-                loader = document.getElementById("loader"),
-                detailsCardContent = document.getElementById(
-                    "details-card-content"
-                ),
-                detailsImage = document.getElementById("details-image"),
-                detailsName = document.getElementById("details-name"),
-                detailsCategory = document.getElementById("details-category"),
-                detailsBanduan = document.getElementById("details-banduan"),
-                recognitionLog = document.getElementById("recognition-log"); // This element is not in the HTML, might need to be added.
+    <script>
+        // DOM Elements
+        const registrationSection = document.getElementById('registration-section'),
+            recognitionSection = document.getElementById('recognition-section'),
+            saveSection = document.getElementById('save-section'),
+            imageUpload = document.getElementById('image-upload'),
+            jsonUpload = document.getElementById('json-upload'),
+            registerButton = document.getElementById('register-button'),
+            loadJsonButton = document.getElementById('load-json-button'),
+            saveJsonButton = document.getElementById('save-json-button'),
+            video = document.getElementById('video'),
+            canvas = document.getElementById('canvas'),
+            statusMessage = document.getElementById('status-message'),
+            liveViewContainer = document.getElementById('live-view-container'),
+            detailsSection = document.getElementById('details-section'),
+            loader = document.getElementById('loader'),
+            detailsCardContent = document.getElementById('details-card-content'),
+            detailsImage = document.getElementById('details-image'),
+            detailsTextContainer = document.getElementById('details-text-container'); // Container for all text details
 
-            // State
-            let labeledFaceDescriptors = []; // This will typically be loaded from a pre-trained source
-            let faceMatcher = null;
-            let detectionInterval = null;
-            let isVideoPlaying = false;
-            let currentlyDisplayedInmate = null;
-            let previousLogId = null; // To prevent duplicate log entries for the same detection
+        // State
+        let labeledFaceDescriptors = [];
+        let faceMatcher = null;
+        let detectionInterval = null;
+        let isVideoPlaying = false;
+        const faceDetails = new Map();
+        let currentlyDisplayedInmate = null;
 
-            // Map to store face details locally (replace with your actual data source)
-            const faceDetails = new Map();
 
-            const STATUS_COLORS = {
-                IDLE: "bg-gray-700",
-                DETECTED: "bg-green-700",
-                UNKNOWN: "bg-red-700",
-            };
+        function showStatus(message, duration = 3000) {
+            statusMessage.innerText = message;
+            statusMessage.style.display = 'block';
+            if (duration) setTimeout(() => statusMessage.style.display = 'none', duration);
+        }
+        
+        // --- WebSocket Setup ---
+        // 1. Plain WebSocket for SENDING data
+        console.log('Attempting to connect to Data WebSocket at ws://recon.local:1337');
+        const dataWebSocket = new WebSocket('ws://recon.local:1337');
+        dataWebSocket.onopen = () => {
+            console.log('Data WebSocket connection established.');
+            showStatus('Data connection established.', 2000);
+        };
+        dataWebSocket.onerror = (error) => {
+            console.error('Data WebSocket Error:', error);
+            showStatus('Data WebSocket Error.', null);
+        };
+        dataWebSocket.onclose = () => {
+            console.log('Data WebSocket connection closed.');
+            showStatus('Data connection closed.', null);
+        };
 
-            function updateStatus(status, message = "") {
-                recognitionStatus.textContent = status;
-                recognitionStatus.className = `ui-section p-8 rounded-xl shadow-lg text-center font-bold text-5xl transition-colors duration-300 min-h-[100px] flex items-center justify-center ${STATUS_COLORS[status]}`;
-                if (message) showStatus(message, 3000);
-            }
-
-            function showStatus(message, duration = 3000) {
-                statusMessage.innerText = message;
-                statusMessage.style.display = "block";
-                if (duration)
-                    setTimeout(
-                        () => (statusMessage.style.display = "none"),
-                        duration
-                    );
-            }
-
-            // The `recognitionLog` element is not present in the provided HTML.
-            // I'm adding a placeholder for it, but if you intend to use this,
-            // you'll need to add a `div` with `id="recognition-log"` in your HTML.
-            if (!recognitionLog) {
-                console.warn(
-                    "Element with ID 'recognition-log' not found. Log entries will not be displayed."
-                );
-                // Create a dummy element to prevent errors if the function is called
-                const dummyLog = document.createElement('div');
-                dummyLog.id = 'recognition-log';
-                document.body.appendChild(dummyLog); // Append it somewhere harmless
-                // In a real scenario, you'd want to ensure this is placed correctly
-                // e.g., inside one of your grid columns.
-            }
-
-            function addLogEntry(inmateName, inmateId, imageUrl) {
-                // Prevent adding the same log entry repeatedly if the inmate is continuously detected
-                if (previousLogId === inmateId) {
-                    return;
-                }
-                previousLogId = inmateId; // Update the ID of the last logged inmate
-
-                const logItem = document.createElement("div");
-                logItem.className =
-                    "recognition-log-item flex items-center gap-4 p-3 bg-gray-700 rounded-lg shadow-md animate-fade-in-down";
-                logItem.innerHTML = `
-                <img src="${
-                    imageUrl ||
-                    `https://placehold.co/60x60/333/eee?text=${inmateName.charAt(
-                        0
-                    )}`
-                }" alt="${inmateName}" class="w-16 h-16 rounded-full object-cover border-2 border-gray-600">
-                <div>
-                    <p class="font-semibold text-lg text-white">${inmateName}</p>
-                    <p class="text-sm text-gray-300">ID: ${inmateId}</p>
-                    <p class="text-xs text-gray-400">${new Date().toLocaleString()}</p>
-                </div>
-            `;
-                recognitionLog.prepend(logItem); // Add to the top of the log
-
-                // Limit log entries to keep performance good (e.g., last 10 entries)
-                if (recognitionLog.children.length > 10) {
-                    recognitionLog.removeChild(recognitionLog.lastChild);
-                }
-            }
-
-            // --- WebSocket Setup ---
-            console.log(
-                "Attempting to connect to Data WebSocket at ws://recon.local:1337"
-            );
-            const dataWebSocket = new WebSocket("ws://recon.local:1337");
-            dataWebSocket.onopen = () => {
-                console.log("Data WebSocket connection established.");
-                showStatus("Data connection established.", 2000);
-            };
-            dataWebSocket.onerror = (error) => {
-                console.error("Data WebSocket Error:", error);
-                showStatus("Data WebSocket Error.", null);
-            };
-            dataWebSocket.onclose = () => {
-                console.log("Data WebSocket connection closed.");
-                showStatus("Data connection closed.", null);
-            };
-
-            console.log(
-                "Attempting to connect to Info Socket.IO at http://recon.local:5002"
-            );
-            const infoSocket = io("http://recon.local:5002");
-            infoSocket.on("connect", () => {
-                console.log("Info Socket.IO connection established.");
-                showStatus("Info connection established.", 2000);
-            });
-            infoSocket.on("disconnect", () => {
-                console.log("Info Socket.IO connection lost.");
-                showStatus("Info connection lost.", null);
-            });
-
-            infoSocket.on("match_found", (data) => {
-                console.log("Received match_found event with data:", data);
-                if (currentlyDisplayedInmate === data.inmate_number) {
-                    detailsImage.src =
-                        data.picpath ||
-                        `https://placehold.co/400x400/2c2c2c/e0e0e0?text=${data.name.replace(
-                            " ",
-                            "+"
-                        )}`;
-                    detailsName.textContent = data.name;
-                    detailsCategory.textContent = data.category;
-                    detailsBanduan.textContent = data.inmate_number;
-
-                    loader.style.display = "none";
-                    detailsCardContent.style.display = "block"; // Ensure it's visible
-
-                    addLogEntry(data.name, data.inmate_number, data.picpath); // Add to log when data is received
+        // 2. Socket.IO for RECEIVING data
+        console.log('Attempting to connect to Info Socket.IO at http://recon.local:5002');
+        const infoSocket = io('http://recon.local:5002');
+        infoSocket.on('connect', () => {
+            console.log('Info Socket.IO connection established.');
+            showStatus('Info connection established.', 2000)
+        });
+        infoSocket.on('disconnect', () => {
+            console.log('Info Socket.IO connection lost.');
+            showStatus('Info connection lost.', null)
+        });
+        
+        infoSocket.on('match_found', (data) => {
+            console.log('Received match_found event with data:', data);
+            
+            // Only update the card if it matches the inmate we are currently looking for
+            if (currentlyDisplayedInmate === data.inmate_number) {
+                
+                // 1. Set the image: Prioritize the locally stored "uploaded" face image.
+                const localDetails = faceDetails.get(data.inmate_number);
+                if (localDetails && localDetails.imageUrl) {
+                    detailsImage.src = localDetails.imageUrl;
                 } else {
-                    console.log(
-                        `Ignoring stale match data for ${data.inmate_number}. Currently displaying ${currentlyDisplayedInmate}.`
-                    );
+                    // Fallback to the server path or a placeholder if no local image is found
+                    detailsImage.src = data.picpath || `https://placehold.co/400x400/2c2c2c/e0e0e0?text=${data.name.replace(' ', '+')}`;
                 }
-            });
+                detailsImage.onerror = () => {
+                    detailsImage.src = `https://placehold.co/400x400/2c2c2c/e0e0e0?text=Image+Not+Found`;
+                    detailsImage.onerror = null; // Prevent infinite loops
+                };
 
-            async function loadModels() {
-                const MODEL_URL =
-                    "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
-                try {
-                    updateStatus("IDLE", "Loading AI Models...");
-                    await Promise.all([
-                        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-                        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-                        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-                    ]);
-                    updateStatus("IDLE", "Models Loaded! Starting camera...");
+                // 2. Display only the specified details
+                detailsTextContainer.innerHTML = ''; // Clear previous details
 
-                    // IMPORTANT: For this to work, you need a way to load your LabeledFaceDescriptors.
-                    // Since registration is removed, you must load them from a pre-saved JSON.
-                    // For demonstration, I'm providing a placeholder. In a real app, load your 'face_data.json'.
-                    await loadInitialFaceData(); // Load pre-registered faces
-                    startVideoAndRecognition();
-                } catch (error) {
-                    console.error(
-                        "Error loading models or initial face data:",
-                        error
-                    );
-                    updateStatus(
-                        "UNKNOWN",
-                        "Error loading models or face data. Please check console."
-                    );
+                // Define the exact fields and their order
+                const fieldsToShow = [
+                    { key: 'name', label: 'Name' },
+                    { key: 'category', label: 'Category' },
+                    { key: 'inmate_number', label: 'Inmate Number' },
+                    { key: 'admission_date', label: 'Admission Date' },
+                    { key: 'release_date', label: 'Release Date' },
+                    { key: 'case_number', label: 'Case Number' }
+                ];
+                
+                fieldsToShow.forEach(field => {
+                    // Check if the data from the server contains this key
+                    if (data.hasOwnProperty(field.key)) {
+                        const p = document.createElement('p');
+                        p.innerHTML = `<strong>${field.label}:</strong> <span>${data[field.key]}</span>`;
+                        detailsTextContainer.appendChild(p);
+                    }
+                });
+                
+                // 3. Show the updated card
+                loader.style.display = 'none';
+                detailsCardContent.style.display = 'block';
+            } else {
+                console.log(`Ignoring stale match data for ${data.inmate_number}. Currently displaying ${currentlyDisplayedInmate}.`);
+            }
+        });
+
+
+        // --- START OF MODIFICATIONS ---
+
+        // This new function will try to load face data from a file on the server.
+        async function loadPredefinedFaceData() {
+            try {
+                // It expects 'face_data.json' to be in the same folder as this HTML file.
+                const response = await fetch('face_data.json');
+                if (!response.ok) {
+                    throw new Error(`File not found or network error. Status: ${response.status}`);
                 }
+                const data = await response.json();
+                
+                // Load face descriptors from the file.
+                labeledFaceDescriptors = data.descriptors.map(d => faceapi.LabeledFaceDescriptors.fromJSON(d));
+                
+                // Load associated details (like local image paths) if they exist.
+                if (data.details) {
+                   data.details.forEach(([key, value]) => faceDetails.set(key, value));
+                }
+                
+                showStatus(`Auto-loaded ${labeledFaceDescriptors.length} people.`, 4000);
+            } catch (error) {
+                console.error('Could not auto-load face_data.json:', error);
+                // If it fails, the user can still use the manual upload buttons.
+                showStatus('Auto-load failed. Please use manual upload.', 5000);
+            }
+        }
+
+        // Modified loadModels function to incorporate your desired startup sequence.
+        async function loadModels() {
+            const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+            try {
+                showStatus('Loading AI Models...', null);
+                await Promise.all([
+                    faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+                ]);
+
+                showStatus('Models Loaded! Loading face data...', null);
+                await loadPredefinedFaceData(); // Attempt to load the predefined JSON file.
+                
+                // This function will start the camera and recognition if face data was loaded.
+                startOrUpdateRecognition();
+
+                // Enable the manual buttons as a fallback.
+                registerButton.disabled = false;
+                loadJsonButton.disabled = false;
+            } catch (error) {
+                console.error("Error during initial setup:", error);
+                showStatus('Error loading models or face data. Please refresh.', null);
+            }
+        }
+        
+        // --- END OF MODIFICATIONS ---
+
+
+        registerButton.addEventListener('click', async () => {
+            const imageFiles = imageUpload.files;
+            if (!imageFiles.length) {
+                showStatus('Please select images to add.', 3000); return;
             }
 
-            // Placeholder for loading pre-registered face data (replace with your actual data loading)
-            async function loadInitialFaceData() {
+            registerButton.disabled = true; loadJsonButton.disabled = true;
+            showStatus(`Processing ${imageFiles.length} images...`, null);
+
+            let facesLearned = 0;
+            for (const file of imageFiles) {
+                // Filename is the inmate number
+                const inmateNumber = file.name.split('.').slice(0, -1).join('.');
+                if (!inmateNumber) continue;
+                showStatus(`Learning face for: ${inmateNumber}...`);
+
                 try {
-                    // In a real application, you would fetch 'face_data.json' from your server
-                    // or load it from a local file if this is a desktop app.
-                    // For this example, we'll simulate some known faces.
-
-                    // Example of how to create LabeledFaceDescriptors manually
-                    // Replace this with actual loading from a JSON file like:
-                    // const response = await fetch('/face_data.json');
-                    // const data = await response.json();
-                    // labeledFaceDescriptors = data.descriptors.map(d => faceapi.LabeledFaceDescriptors.fromJSON(d));
-                    // You might also populate `faceDetails` from `data.details`
-
-                    // --- Dummy Data for Demonstration ---
-                    const dummyDescriptor1 = Array.from({ length: 128 }, () =>
-                        Math.random()
-                    ); // 128 random floats
-                    const dummyDescriptor2 = Array.from({ length: 128 }, () =>
-                        Math.random()
-                    );
-
-                    labeledFaceDescriptors = [
-                        new faceapi.LabeledFaceDescriptors("100000", [
-                            new Float32Array(dummyDescriptor1),
-                        ]),
-                        new faceapi.LabeledFaceDescriptors("100001", [
-                            new Float32Array(dummyDescriptor2),
-                        ]),
-                    ];
-
-                    // Populate faceDetails for local display (replace with your actual data)
-                    // These details would ideally come from your backend or the loaded JSON
-                    // For now, let's make sure the details are available for `addLogEntry` later
-                    // and to prevent null issues if `match_found` is delayed or doesn't have all info.
-                    faceDetails.set("100000", {
-                        name: "John Doe",
-                        category: "Inmate",
-                        picpath:
-                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=John+Doe",
-                    });
-                    faceDetails.set("100001", {
-                        name: "Jane Smith",
-                        category: "Visitor",
-                        picpath:
-                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=Jane+Smith",
-                    });
-
-                    console.log(
-                        `Loaded ${labeledFaceDescriptors.length} dummy face descriptors.`
-                    );
-                    updateStatus(
-                        "IDLE",
-                        `Ready with ${labeledFaceDescriptors.length} registered faces.`
-                    );
-                } catch (error) {
-                    console.error("Failed to load initial face data:", error);
-                    updateStatus(
-                        "UNKNOWN",
-                        "Failed to load initial face data."
-                    );
-                }
-            }
-
-            async function startVideo() {
-                if (isVideoPlaying) return;
-                try {
-                    video.srcObject = await navigator.mediaDevices.getUserMedia(
-                        {
-                            video: {},
+                    const image = await faceapi.bufferToImage(file);
+                    const detection = await faceapi.detectSingleFace(image, new faceapi.SsdMobilenetv1Options()).withFaceLandmarks().withFaceDescriptor();
+                    
+                    if (detection) {
+                        let existingLabel = labeledFaceDescriptors.find(d => d.label === inmateNumber);
+                        if (existingLabel) {
+                            existingLabel.descriptors.push(detection.descriptor);
+                        } else {
+                            labeledFaceDescriptors.push(new faceapi.LabeledFaceDescriptors(inmateNumber, [detection.descriptor]));
                         }
-                    );
-                    isVideoPlaying = true;
-                    video.onloadedmetadata = () => {
-                        video.play();
-                    };
-                } catch (err) {
-                    console.error("Error accessing webcam:", err);
-                    updateStatus("UNKNOWN", "Webcam access denied.");
+                        // Store image src (the "uploaded face") for local display
+                        faceDetails.set(inmateNumber, { imageUrl: image.src });
+                        facesLearned++;
+                    }
+                } catch (error) {
+                    console.error(`Error processing image ${file.name}:`, error);
                 }
             }
+            
+            showStatus(`Added/Updated ${facesLearned} faces.`, 4000);
+            startOrUpdateRecognition();
+            registerButton.disabled = false; loadJsonButton.disabled = false;
+        });
+        
+        loadJsonButton.addEventListener('click', () => jsonUpload.click());
+        jsonUpload.addEventListener('change', async (event) => {
+            const file = event.target.files[0]; if (!file) return;
+            showStatus('Loading and replacing face data...', null);
+            const json = await file.text();
+            const data = JSON.parse(json);
+            
+            labeledFaceDescriptors = data.descriptors.map(d => faceapi.LabeledFaceDescriptors.fromJSON(d));
+            data.details.forEach(([key, value]) => faceDetails.set(key, value));
+            showStatus(`Replaced data. Now recognizing ${labeledFaceDescriptors.length} people.`, 3000);
+            startOrUpdateRecognition();
+        });
 
-            function startVideoAndRecognition() {
-                if (labeledFaceDescriptors.length === 0) {
-                    updateStatus(
-                        "UNKNOWN",
-                        "No faces registered. Please load data."
-                    );
-                    return;
-                }
-
-                faceMatcher = new faceapi.FaceMatcher(
-                    labeledFaceDescriptors,
-                    0.55
-                );
-                updateStatus(
-                    "IDLE",
-                    `Recognition active for ${labeledFaceDescriptors.length} people.`
-                );
-                startVideo();
+        saveJsonButton.addEventListener('click', () => {
+            if (labeledFaceDescriptors.length === 0) {
+                showStatus('No face data to save!', 3000); return;
             }
+            const dataToSave = {
+                descriptors: labeledFaceDescriptors.map(ld => ld.toJSON()),
+                details: Array.from(faceDetails.entries()) // Save the image URLs too
+            };
+            const jsonString = JSON.stringify(dataToSave, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'face_data.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showStatus('Face data saved!', 3000);
+        });
 
-            // --- Live Detection & Data Request Flow ---
-            video.addEventListener("play", () => {
-                if (detectionInterval) clearInterval(detectionInterval);
+        async function startVideo() {
+            if (isVideoPlaying) return;
+            try {
+                video.srcObject = await navigator.mediaDevices.getUserMedia({ video: {} });
+                isVideoPlaying = true;
+            } catch (err) {
+                console.error("Error accessing webcam:", err);
+                showStatus('Webcam access denied.', null);
+            }
+        }
 
-                detectionInterval = setInterval(async () => {
-                    if (!faceMatcher || !isVideoPlaying) return;
+        function startOrUpdateRecognition() {
+            if (labeledFaceDescriptors.length === 0) {
+                // Don't show an error on initial load if auto-load fails, just wait for manual upload.
+                console.log("No faces registered yet. Waiting for user to upload data.");
+                return;
+            }
+            
+            liveViewContainer.style.display = 'flex';
+            saveSection.style.display = 'block';
+            faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.55);
+            showStatus(`Recognition started for ${labeledFaceDescriptors.length} people.`, 2000);
+            startVideo();
+        }
 
-                    const displaySize = {
-                        width: video.clientWidth,
-                        height: video.clientHeight,
-                    };
-                    faceapi.matchDimensions(canvas, displaySize);
-                    const detections = await faceapi
-                        .detectAllFaces(
-                            video,
-                            new faceapi.SsdMobilenetv1Options()
-                        )
-                        .withFaceLandmarks()
-                        .withFaceDescriptors();
-                    const resizedDetections = faceapi.resizeResults(
-                        detections,
-                        displaySize
-                    );
-                    const context = canvas.getContext("2d");
-                    context.clearRect(0, 0, canvas.width, canvas.height);
+        // --- Live Detection & Data Request Flow ---
+        video.addEventListener('play', () => {
+            if (detectionInterval) clearInterval(detectionInterval);
 
-                    let foundKnownPersonThisFrame = false;
-                    if (resizedDetections.length > 0) {
-                        resizedDetections.forEach((detection) => {
-                            const bestMatch = faceMatcher.findBestMatch(
-                                detection.descriptor
-                            );
-                            const box = detection.detection.box;
+            detectionInterval = setInterval(async () => {
+                if (!faceMatcher || !isVideoPlaying) return;
 
-                            const text = bestMatch.toString();
-                            const anchor = box.topLeft;
+                const displaySize = { width: video.clientWidth, height: video.clientHeight };
+                faceapi.matchDimensions(canvas, displaySize);
+                const detections = await faceapi.detectAllFaces(video, new faceapi.SsdMobilenetv1Options()).withFaceLandmarks().withFaceDescriptors();
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                const context = canvas.getContext('2d');
+                context.clearRect(0, 0, canvas.width, canvas.height);
 
-                            // Draw only the box with the library
-                            new faceapi.draw.DrawBox(box, {
-                                label: "",
-                                boxColor: "rgba(0, 255, 0, 0.8)",
-                            }).draw(canvas);
+                let foundKnownPersonThisFrame = false;
+                resizedDetections.forEach(detection => {
+                    const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+                    const box = detection.detection.box;
+                    const text = bestMatch.toString();
+                    const anchor = box.topLeft;
+                    
+                    // Draw the box using the library for simplicity
+                    new faceapi.draw.DrawBox(box, {
+                        label: '',
+                        boxColor: 'rgba(0, 255, 0, 0.8)'
+                    }).draw(canvas);
 
-                            // Manually draw the text to un-flip it
-                            const font = "18px Inter";
-                            context.font = font;
-                            const textWidth = context.measureText(text).width;
-                            const textHeight = 18;
-                            const padding = 5;
+                    // Manually draw the text to counteract the video's horizontal flip
+                    const font = '18px Inter';
+                    context.font = font;
+                    const textWidth = context.measureText(text).width;
+                    const textHeight = 18;
+                    const padding = 5;
 
-                            const labelX = anchor.x;
-                            const labelY =
-                                anchor.y - (textHeight + 2 * padding);
+                    // Calculate position for the label background
+                    const labelX = anchor.x;
+                    const labelY = anchor.y > (textHeight + (2 * padding)) ? anchor.y - (textHeight + (2 * padding)) : anchor.y + padding;
+                    
+                    context.save();
+                    context.translate(labelX, labelY);
+                    context.scale(-1, 1); // Flip context only for drawing text
 
-                            context.save();
-                            context.translate(labelX, labelY);
-                            context.scale(-1, 1); // Flip the context for drawing
+                    // Draw background for the text
+                    context.fillStyle = 'rgba(0, 255, 0, 0.8)';
+                    context.fillRect(0, 0, -(textWidth + (2 * padding)), textHeight + (2 * padding));
 
-                            context.fillStyle = "rgba(0, 255, 0, 0.8)";
-                            context.fillRect(
-                                0,
-                                0,
-                                -(textWidth + 2 * padding),
-                                textHeight + 2 * padding
-                            );
+                    // Draw the text
+                    context.fillStyle = 'white';
+                    context.fillText(text, -textWidth - padding, textHeight);
+                    
+                    context.restore(); // Restore context to its original state
 
-                            context.fillStyle = "white";
-                            context.fillText(
-                                text,
-                                -textWidth - padding,
-                                textHeight
-                            );
+                    if (bestMatch.label !== 'unknown') {
+                        foundKnownPersonThisFrame = true;
+                        // If we detect a new person (or the first person)
+                        if (currentlyDisplayedInmate !== bestMatch.label) {
+                            currentlyDisplayedInmate = bestMatch.label; // The label is the inmate number
+                            console.log(`Detected inmate: ${currentlyDisplayedInmate}. Sending request...`);
+                            
+                            loader.style.display = 'block';
+                            detailsCardContent.style.display = 'none';
 
-                            context.restore(); // Restore the context
-
-                            if (bestMatch.label !== "unknown") {
-                                foundKnownPersonThisFrame = true;
-                                updateStatus(
-                                    "DETECTED",
-                                    `Recognized: ${bestMatch.label}`
-                                );
-                                // If we detect a new person (or the first person)
-                                if (
-                                    currentlyDisplayedInmate !== bestMatch.label
-                                ) {
-                                    currentlyDisplayedInmate = bestMatch.label; // The label is the inmate number
-                                    console.log(
-                                        `Detected inmate: ${currentlyDisplayedInmate}. Sending request...`
-                                    );
-
-                                    loader.style.display = "block";
-                                    // detailsCardContent.style.display = "none"; // Keep visible
-
-                                    // Send inmate number via plain WebSocket
-                                    if (
-                                        dataWebSocket.readyState ===
-                                        WebSocket.OPEN
-                                    ) {
-                                        dataWebSocket.send(
-                                            JSON.stringify({
-                                                number: currentlyDisplayedInmate,
-                                            })
-                                        );
-                                        console.log(
-                                            `Sent to ws://recon.local:1337: { number: currentlyDisplayedInmate }`
-                                        );
-                                    } else {
-                                        console.error(
-                                            "Data WebSocket is not open. Cannot send request."
-                                        );
-                                        showStatus(
-                                            "Data connection lost, check server.",
-                                            null
-                                        );
-                                    }
-                                }
+                            // Send inmate number via plain WebSocket
+                            if (dataWebSocket.readyState === WebSocket.OPEN) {
+                                dataWebSocket.send(JSON.stringify({ number: currentlyDisplayedInmate }));
+                                console.log(`Sent to ws://recon.local:1337:`, { number: currentlyDisplayedInmate });
                             } else {
-                                // If an unknown face is detected, but no known face is found
-                                if (
-                                    !foundKnownPersonThisFrame &&
-                                    currentlyDisplayedInmate !== "unknown"
-                                ) {
-                                    currentlyDisplayedInmate = "unknown"; // Mark as unknown to prevent repeated updates
-                                    updateStatus(
-                                        "UNKNOWN",
-                                        "Unknown face detected!"
-                                    );
-                                    loader.style.display = "none";
-                                    detailsCardContent.style.display = "block"; // Ensure it's visible
-                                    detailsImage.src =
-                                        "https://placehold.co/400x400/e0e0e0/2c2c2c?text=UNKNOWN";
-                                    detailsName.textContent = "Unknown";
-                                    detailsCategory.textContent = "N/A";
-                                    detailsBanduan.textContent = "N/A";
-                                }
+                                console.error('Data WebSocket is not open. Cannot send request.');
                             }
-                        });
+                        }
                     }
-
-                    if (
-                        !foundKnownPersonThisFrame &&
-                        currentlyDisplayedInmate !== null &&
-                        currentlyDisplayedInmate !== "unknown"
-                    ) {
-                        // No known person detected in this frame after a known person was previously displayed
-                        currentlyDisplayedInmate = null; // Reset to null
-                        updateStatus("IDLE", "No known person detected.");
-                        loader.style.display = "none";
-                        // detailsCardContent.style.display = "none"; // Keep visible
-                        detailsImage.src =
-                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=No+Detection";
-                        detailsName.textContent = "N/A";
-                        detailsCategory.textContent = "N/A";
-                        detailsBanduan.textContent = "N/A";
-                        previousLogId = null; // Allow re-logging if the same inmate re-appears
-                    } else if (
-                        resizedDetections.length === 0 &&
-                        currentlyDisplayedInmate !== null &&
-                        currentlyDisplayedInmate !== "idle"
-                    ) {
-                        // No faces detected at all
-                        currentlyDisplayedInmate = "idle"; // Set to 'idle' state for status
-                        updateStatus("IDLE", "No faces detected.");
-                        loader.style.display = "none";
-                        // detailsCardContent.style.display = "none"; // Keep visible
-                        detailsImage.src =
-                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=No+Detection";
-                        detailsName.textContent = "N/A";
-                        detailsCategory.textContent = "N/A";
-                        detailsBanduan.textContent = "N/A";
-                        previousLogId = null; // Allow re-logging if any inmate re-appears
-                    }
-                }, 500); // Reduced interval for faster updates
-            });
-
-            // --- Anime.js Toggle Button Logic ---
-            const toggleButtons = document.querySelectorAll(".toggle-button");
-            const indicator = document.getElementById("indicator");
-            let activeToggleButton = null;
-
-            function updateIndicatorPosition(button) {
-                const buttonRect = button.getBoundingClientRect();
-                const cardRect = button
-                    .closest("#toggle-buttons-card")
-                    .getBoundingClientRect();
-
-                // Calculate the top position relative to the card's padding-top and h3 height
-                // The h3 has mb-4 (1rem = 16px, so 4rem = 64px) and p-8 (32px top padding).
-                // Let's assume the h3 takes up roughly 24px (text size) + 16px (mb-4) + 32px (card padding-top) = 72px total offset from card top
-                // A safer way is to calculate offset from the first button's top.
-                const firstButton = toggleButtons[0];
-                const firstButtonRect = firstButton.getBoundingClientRect();
-                const initialOffset = firstButtonRect.top - cardRect.top;
-
-
-                // Calculate the target Y position for the indicator relative to its parent (#toggle-buttons-card)
-                const targetY = buttonRect.top - cardRect.top;
-
-                // Set a CSS variable for the indicator height based on the button's height
-                indicator.style.setProperty(
-                    "--button-height",
-                    `${buttonRect.height}px`
-                );
-
-                anime({
-                    targets: indicator,
-                    translateY: targetY,
-                    duration: 500,
-                    easing: "easeInOutQuad",
                 });
-            }
 
-            function activateButton(button) {
-                if (activeToggleButton) {
-                    activeToggleButton.classList.remove("active");
+                if (!foundKnownPersonThisFrame && currentlyDisplayedInmate) {
+                    currentlyDisplayedInmate = null;
+                    loader.style.display = 'none';
+                    detailsCardContent.style.display = 'none';
                 }
-                button.classList.add("active");
-                activeToggleButton = button;
-                updateIndicatorPosition(button);
-            }
+            }, 1000);
+        });
 
-            toggleButtons.forEach((button, index) => {
-                button.addEventListener("click", () => {
-                    // Micro-interaction feedback
-                    anime({
-                        targets: button,
-                        scale: [
-                            { value: 0.95, duration: 100, easing: "easeOutQuad" },
-                            { value: 1, duration: 200, easing: "easeOutQuad" },
-                        ],
-                        background: [
-                            { value: '#3182ce', duration: 0 }, // Immediately set to active color
-                            { value: '#3182ce', duration: 300 } // Hold active color
-                        ]
-                    });
-
-                    activateButton(button);
-                    console.log(`Toggle Button ${index + 1} clicked.`);
-                    // You can add specific actions for each toggle button here if needed
-                });
-            });
-
-            // Initialize the first button as active and position the indicator
-            document.addEventListener("DOMContentLoaded", () => {
-                if (toggleButtons.length > 0) {
-                    activateButton(toggleButtons[0]);
-                }
-            });
-
-
-            loadModels();
-        </script>
-    </body>
+        // This starts the entire process when the page loads.
+        loadModels();
+    </script>
+</body>
 </html>

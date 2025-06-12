@@ -7,8 +7,12 @@
 
         <link rel="stylesheet" href="./style-out.css" />
 
-        <script src="./node_modules/face-api.js/dist/face-api.js"></script>
-        <script src="./node_modules/socket.io/client-dist/socket.io.min.js"></script>
+        <!-- Using Tailwind CSS via CDN -->
+        <script src="https://cdn.tailwindcss.com"></script>
+        
+        <!-- Loading libraries from CDN -->
+        <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+        <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -96,8 +100,6 @@
             .toggle-button:hover:not(.active) {
                 background-color: #4b5563; /* Corresponds to bg-gray-600 */
             }
-
-            /* REMOVED: Indicator styles are no longer needed */
         </style>
     </head>
     <body
@@ -116,8 +118,8 @@
                     <div
                         class="ui-section bg-gray-800 p-4 rounded-xl shadow-lg h-full flex items-center gap-8 justify-center text-gray-400"
                     >
-                        <img src="./assets/logo.png" alt="logo" class="h-20" />
-                        <div class="flex flex-col items-center font-bold">
+                    <img src="./assets/logo.png" alt="logo" class="h-20" />
+                    <div class="flex flex-col items-center font-bold">
                             <div id="time"></div>
                             <div id="date"></div>
                         </div>
@@ -135,7 +137,7 @@
 
                 <div
                     id="details-section"
-                    class="col-span-1 row-span-2 ui-section bg-gray-800 p-8 rounded-xl shadow-2xl"
+                    class="col-span-1 row-span-2 ui-section bg-gray-800 p-8 rounded-xl shadow-2xl overflow-y-auto"
                 >
                     <div id="loader"></div>
                     <div id="details-card-content">
@@ -148,24 +150,30 @@
                         <div class="details-text">
                             <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
                                 <strong>Name:</strong>
-                                <span id="details-name" class="text-blue-400"
-                                    >N/A</span
-                                >
+                                <span id="details-name" class="text-blue-400">N/A</span>
                             </p>
                             <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
                                 <strong>Category:</strong>
-                                <span
-                                    id="details-category"
-                                    class="text-blue-400"
-                                    >N/A</span
-                                >
+                                <span id="details-category" class="text-blue-400">N/A</span>
                             </p>
                             <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
                                 <strong>No. Banduan:</strong>
-                                <span id="details-banduan" class="text-blue-400"
-                                    >N/A</span
-                                >
+                                <span id="details-banduan" class="text-blue-400">N/A</span>
                             </p>
+                            <!-- ADDED FIELDS START -->
+                            <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
+                                <strong>Admission Date:</strong>
+                                <span id="details-admission-date" class="text-blue-400">N/A</span>
+                            </p>
+                            <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
+                                <strong>Release Date:</strong>
+                                <span id="details-release-date" class="text-blue-400">N/A</span>
+                            </p>
+                            <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
+                                <strong>Case Number:</strong>
+                                <span id="details-case-number" class="text-blue-400">N/A</span>
+                            </p>
+                            <!-- ADDED FIELDS END -->
                         </div>
                     </div>
                 </div>
@@ -241,7 +249,14 @@
                 detailsName = document.getElementById("details-name"),
                 detailsCategory = document.getElementById("details-category"),
                 detailsBanduan = document.getElementById("details-banduan"),
-                recognitionLog = document.getElementById("recognition-log");
+                detailsAdmissionDate = document.getElementById("details-admission-date"),
+                detailsReleaseDate = document.getElementById("details-release-date"),
+                detailsCaseNumber = document.getElementById("details-case-number");
+                
+            let recognitionLog = document.getElementById("recognition-log");
+            if (!recognitionLog) {
+                recognitionLog = document.createElement("div"); 
+            }
 
             // State
             let labeledFaceDescriptors = [];
@@ -250,19 +265,23 @@
             let isVideoPlaying = false;
             let currentlyDisplayedInmate = null;
             let previousLogId = null;
+            let clearDetailsTimer = null; 
+            let activeCategory = 'BLKP'; // Default category
 
             const faceDetails = new Map();
 
+            // --- MODIFIED: Added FRAUD status color ---
             const STATUS_COLORS = {
                 IDLE: "bg-gray-700",
                 DETECTED: "bg-green-700",
-                UNKNOWN: "bg-red-700",
+                UNKNOWN: "bg-yellow-500",
+                'CATEGORY MISMATCH': "bg-red-500", 
             };
 
             function updateStatus(status, message = "") {
                 recognitionStatus.textContent = status;
                 recognitionStatus.className = `ui-section p-8 rounded-xl h-full shadow-lg text-center font-bold text-5xl transition-colors duration-300 flex items-center justify-center ${STATUS_COLORS[status]}`;
-                if (message) showStatus(message, 3000);
+                // if (message) showStatus(message, 3000);
             }
 
             function showStatus(message, duration = 3000) {
@@ -273,15 +292,6 @@
                         () => (statusMessage.style.display = "none"),
                         duration
                     );
-            }
-
-            if (!recognitionLog) {
-                console.warn(
-                    "Element with ID 'recognition-log' not found. Log entries will not be displayed."
-                );
-                const dummyLog = document.createElement("div");
-                dummyLog.id = "recognition-log";
-                document.body.appendChild(dummyLog);
             }
 
             function addLogEntry(inmateName, inmateId, imageUrl) {
@@ -312,65 +322,103 @@
                     recognitionLog.removeChild(recognitionLog.lastChild);
                 }
             }
+            
+            // --- NEW FUNCTION: Checks for category mismatch ---
+            function recheckCurrentDetectionForFraud() {
+                if (!currentlyDisplayedInmate || currentlyDisplayedInmate === 'unknown') {
+                    return;
+                }
+
+                const details = faceDetails.get(currentlyDisplayedInmate);
+                const personCategory = details?.serverData?.category;
+
+                if (!personCategory) {
+                    // We don't have the data from the server yet, so we can't check.
+                    return;
+                }
+                
+                // Perform the fraud check. "All" is a wildcard and never fraud.
+                const isFraud = activeCategory.toLowerCase() !== 'all' && personCategory.toLowerCase() !== activeCategory.toLowerCase();
+
+                if (isFraud) {
+                    updateStatus("CATEGORY MISMATCH", "Category Mismatch");
+                } else {
+                    // If it's not fraud, ensure the status is back to 'DETECTED'.
+                    updateStatus("DETECTED", `Recognized: ${currentlyDisplayedInmate}`);
+                }
+            }
+
 
             // --- WebSocket Setup ---
-            console.log(
-                "Attempting to connect to Data WebSocket at ws://recon.local:1337"
-            );
+            console.log("Attempting to connect to Data WebSocket at ws://recon.local:1337");
             const dataWebSocket = new WebSocket("ws://recon.local:1337");
-            dataWebSocket.onopen = () => {
-                console.log("Data WebSocket connection established.");
-                showStatus("Data connection established.", 2000);
-            };
-            dataWebSocket.onerror = (error) => {
-                console.error("Data WebSocket Error:", error);
-                showStatus("Data WebSocket Error.", null);
-            };
-            dataWebSocket.onclose = () => {
-                console.log("Data WebSocket connection closed.");
-                showStatus("Data connection closed.", null);
-            };
+            dataWebSocket.onopen = () => { showStatus("Data connection established.", 2000); };
+            dataWebSocket.onerror = (error) => { showStatus("Data WebSocket Error.", null); };
+            dataWebSocket.onclose = () => { showStatus("Data connection closed.", null); };
 
-            console.log(
-                "Attempting to connect to Info Socket.IO at http://recon.local:5002"
-            );
+            console.log("Attempting to connect to Info Socket.IO at http://recon.local:5002");
             const infoSocket = io("http://recon.local:5002");
-            infoSocket.on("connect", () => {
-                console.log("Info Socket.IO connection established.");
-                showStatus("Info connection established.", 2000);
-            });
-            infoSocket.on("disconnect", () => {
-                console.log("Info Socket.IO connection lost.");
-                showStatus("Info connection lost.", null);
-            });
+            infoSocket.on("connect", () => { showStatus("Info connection established.", 2000); });
+            infoSocket.on("disconnect", () => { showStatus("Info connection lost.", null); });
 
+            // --- MODIFIED: Added fraud check on data arrival ---
             infoSocket.on("match_found", (data) => {
                 console.log("Received match_found event with data:", data);
                 if (currentlyDisplayedInmate === data.inmate_number) {
-                    detailsImage.src =
-                        data.picpath ||
-                        `https://placehold.co/400x400/2c2c2c/e0e0e0?text=${data.name.replace(
-                            " ",
-                            "+"
-                        )}`;
-                    detailsName.textContent = data.name;
-                    detailsCategory.textContent = data.category;
-                    detailsBanduan.textContent = data.inmate_number;
+                    
+                    // Store server data in our map
+                    const localDetails = faceDetails.get(data.inmate_number);
+                    if(localDetails) {
+                        localDetails.serverData = data;
+                    } else {
+                        faceDetails.set(data.inmate_number, { serverData: data });
+                    }
+                    
+                    // Now that we have the category, check for fraud
+                    recheckCurrentDetectionForFraud();
+                    
+                    // Update the details card regardless of fraud status
+                    if (localDetails && localDetails.imageUrl) {
+                        detailsImage.src = localDetails.imageUrl;
+                    } else {
+                        detailsImage.src = data.picpath || `https://placehold.co/400x400/2c2c2c/e0e0e0?text=${data.name.replace(" ", "+")}`;
+                    }
+                    detailsImage.onerror = () => { detailsImage.src = `https://placehold.co/400x400/2c2c2c/e0e0e0?text=Image+Not+Found`; detailsImage.onerror = null; };
+
+                    detailsName.textContent = data.name || "N/A";
+                    detailsCategory.textContent = data.category || "N/A";
+                    detailsBanduan.textContent = data.inmate_number || "N/A";
+                    detailsAdmissionDate.textContent = data.admission_date || "N/A";
+                    detailsReleaseDate.textContent = data.release_date || "N/A";
+                    detailsCaseNumber.textContent = data.case_number || "N/A";
 
                     loader.style.display = "none";
                     detailsCardContent.style.display = "block";
+                    addLogEntry(data.name, data.inmate_number, detailsImage.src);
 
-                    addLogEntry(data.name, data.inmate_number, data.picpath);
                 } else {
-                    console.log(
-                        `Ignoring stale match data for ${data.inmate_number}. Currently displaying ${currentlyDisplayedInmate}.`
-                    );
+                    console.log(`Ignoring stale match data for ${data.inmate_number}. Currently displaying ${currentlyDisplayedInmate}.`);
                 }
             });
-
+            
+            async function loadPredefinedFaceData() {
+                try {
+                    const response = await fetch('face_data.json');
+                    if (!response.ok) { throw new Error(`File not found: ${response.status}`); }
+                    const data = await response.json();
+                    labeledFaceDescriptors = data.descriptors.map(d => faceapi.LabeledFaceDescriptors.fromJSON(d));
+                    if (data.details) {
+                       data.details.forEach(([key, value]) => faceDetails.set(key, value));
+                    }
+                    console.log(`Auto-loaded ${labeledFaceDescriptors.length} people.`);
+                } catch (error) {
+                    console.error('Could not auto-load face data:', error);
+                    updateStatus("UNKNOWN", "face_data.json not found.");
+                }
+            }
+            
             async function loadModels() {
-                const MODEL_URL =
-                    "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
+                const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
                 try {
                     updateStatus("IDLE", "Loading AI Models...");
                     await Promise.all([
@@ -378,82 +426,21 @@
                         faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
                         faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
                     ]);
-                    updateStatus("IDLE", "Models Loaded! Starting camera...");
-                    await loadInitialFaceData();
+                    updateStatus("IDLE", "Models Loaded! Loading face data...");
+                    await loadPredefinedFaceData();
                     startVideoAndRecognition();
                 } catch (error) {
-                    console.error(
-                        "Error loading models or initial face data:",
-                        error
-                    );
-                    updateStatus(
-                        "UNKNOWN",
-                        "Error loading models or face data. Please check console."
-                    );
-                }
-            }
-
-            async function loadInitialFaceData() {
-                try {
-                    const dummyDescriptor1 = Array.from(
-                        { length: 128 },
-                        () => Math.random()
-                    );
-                    const dummyDescriptor2 = Array.from(
-                        { length: 128 },
-                        () => Math.random()
-                    );
-
-                    labeledFaceDescriptors = [
-                        new faceapi.LabeledFaceDescriptors("100000", [
-                            new Float32Array(dummyDescriptor1),
-                        ]),
-                        new faceapi.LabeledFaceDescriptors("100001", [
-                            new Float32Array(dummyDescriptor2),
-                        ]),
-                    ];
-
-                    faceDetails.set("100000", {
-                        name: "John Doe",
-                        category: "Inmate",
-                        picpath:
-                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=John+Doe",
-                    });
-                    faceDetails.set("100001", {
-                        name: "Jane Smith",
-                        category: "Visitor",
-                        picpath:
-                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=Jane+Smith",
-                    });
-
-                    console.log(
-                        `Loaded ${labeledFaceDescriptors.length} dummy face descriptors.`
-                    );
-                    updateStatus(
-                        "IDLE",
-                        `Ready with ${labeledFaceDescriptors.length} registered faces.`
-                    );
-                } catch (error) {
-                    console.error("Failed to load initial face data:", error);
-                    updateStatus(
-                        "UNKNOWN",
-                        "Failed to load initial face data."
-                    );
+                    console.error("Error during startup:", error);
+                    updateStatus("UNKNOWN", "Error loading models or face data.");
                 }
             }
 
             async function startVideo() {
                 if (isVideoPlaying) return;
                 try {
-                    video.srcObject = await navigator.mediaDevices.getUserMedia(
-                        {
-                            video: {},
-                        }
-                    );
+                    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: {} });
                     isVideoPlaying = true;
-                    video.onloadedmetadata = () => {
-                        video.play();
-                    };
+                    video.onloadedmetadata = () => { video.play(); };
                 } catch (err) {
                     console.error("Error accessing webcam:", err);
                     updateStatus("UNKNOWN", "Webcam access denied.");
@@ -462,21 +449,11 @@
 
             function startVideoAndRecognition() {
                 if (labeledFaceDescriptors.length === 0) {
-                    updateStatus(
-                        "UNKNOWN",
-                        "No faces registered. Please load data."
-                    );
+                    updateStatus("UNKNOWN", "No faces registered.");
                     return;
                 }
-
-                faceMatcher = new faceapi.FaceMatcher(
-                    labeledFaceDescriptors,
-                    0.55
-                );
-                updateStatus(
-                    "IDLE",
-                    `Recognition active for ${labeledFaceDescriptors.length} people.`
-                );
+                faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.47);
+                updateStatus("IDLE", `Recognition active for ${labeledFaceDescriptors.length} people.`);
                 startVideo();
             }
 
@@ -486,168 +463,94 @@
                 detectionInterval = setInterval(async () => {
                     if (!faceMatcher || !isVideoPlaying) return;
 
-                    const displaySize = {
-                        width: video.clientWidth,
-                        height: video.clientHeight,
-                    };
+                    const displaySize = { width: video.clientWidth, height: video.clientHeight };
                     faceapi.matchDimensions(canvas, displaySize);
-                    const detections = await faceapi
-                        .detectAllFaces(
-                            video,
-                            new faceapi.SsdMobilenetv1Options()
-                        )
-                        .withFaceLandmarks()
-                        .withFaceDescriptors();
-                    const resizedDetections = faceapi.resizeResults(
-                        detections,
-                        displaySize
-                    );
+                    const detections = await faceapi.detectAllFaces(video, new faceapi.SsdMobilenetv1Options()).withFaceLandmarks().withFaceDescriptors();
+                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
                     const context = canvas.getContext("2d");
                     context.clearRect(0, 0, canvas.width, canvas.height);
 
                     let foundKnownPersonThisFrame = false;
                     if (resizedDetections.length > 0) {
                         resizedDetections.forEach((detection) => {
-                            const bestMatch = faceMatcher.findBestMatch(
-                                detection.descriptor
-                            );
-                            const box = detection.detection.box;
-
-                            const text = bestMatch.toString();
-                            const anchor = box.topLeft;
-
-                            new faceapi.draw.DrawBox(box, {
-                                label: "",
-                                boxColor: "rgba(0, 255, 0, 0.8)",
-                            }).draw(canvas);
-
-                            const font = "18px Inter";
-                            context.font = font;
-                            const textWidth = context.measureText(text).width;
-                            const textHeight = 18;
-                            const padding = 5;
-
-                            const labelX = anchor.x;
-                            const labelY =
-                                anchor.y - (textHeight + 2 * padding);
-
-                            context.save();
-                            context.translate(labelX, labelY);
-                            context.scale(-1, 1);
-
-                            context.fillStyle = "rgba(0, 255, 0, 0.8)";
-                            context.fillRect(
-                                0,
-                                0,
-                                -(textWidth + 2 * padding),
-                                textHeight + 2 * padding
-                            );
-
-                            context.fillStyle = "white";
-                            context.fillText(
-                                text,
-                                -textWidth - padding,
-                                textHeight
-                            );
-
-                            context.restore();
-
+                            const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
                             if (bestMatch.label !== "unknown") {
                                 foundKnownPersonThisFrame = true;
-                                updateStatus(
-                                    "DETECTED",
-                                    `Recognized: ${bestMatch.label}`
-                                );
-                                if (
-                                    currentlyDisplayedInmate !== bestMatch.label
-                                ) {
+
+                                if (clearDetailsTimer) {
+                                    clearTimeout(clearDetailsTimer);
+                                    clearDetailsTimer = null;
+                                }
+
+                                if (currentlyDisplayedInmate !== bestMatch.label) {
                                     currentlyDisplayedInmate = bestMatch.label;
-                                    console.log(
-                                        `Detected inmate: ${currentlyDisplayedInmate}. Sending request...`
-                                    );
-
+                                    updateStatus("DETECTED", `Recognized: ${bestMatch.label}`);
+                                    console.log(`Detected inmate: ${currentlyDisplayedInmate}. Sending request...`);
                                     loader.style.display = "block";
-
-                                    if (
-                                        dataWebSocket.readyState ===
-                                        WebSocket.OPEN
-                                    ) {
-                                        dataWebSocket.send(
-                                            JSON.stringify({
-                                                number: currentlyDisplayedInmate,
-                                            })
-                                        );
-                                        console.log(
-                                            `Sent to ws://recon.local:1337: { number: ${currentlyDisplayedInmate} }`
-                                        );
-                                    } else {
-                                        console.error(
-                                            "Data WebSocket is not open. Cannot send request."
-                                        );
-                                        showStatus(
-                                            "Data connection lost, check server.",
-                                            null
-                                        );
+                                    if (dataWebSocket.readyState === WebSocket.OPEN) {
+                                        dataWebSocket.send(JSON.stringify({ number: currentlyDisplayedInmate }));
                                     }
                                 }
-                            } else {
-                                if (
-                                    !foundKnownPersonThisFrame &&
-                                    currentlyDisplayedInmate !== "unknown"
-                                ) {
-                                    currentlyDisplayedInmate = "unknown";
-                                    updateStatus(
-                                        "UNKNOWN",
-                                        "Unknown face detected!"
-                                    );
-                                    loader.style.display = "none";
-                                    detailsCardContent.style.display = "block";
-                                    detailsImage.src =
-                                        "https://placehold.co/400x400/e0e0e0/2c2c2c?text=UNKNOWN";
-                                    detailsName.textContent = "Unknown";
-                                    detailsCategory.textContent = "N/A";
-                                    detailsBanduan.textContent = "N/A";
-                                }
+                                // Re-check for fraud on every frame in case data has arrived
+                                recheckCurrentDetectionForFraud();
+
                             }
+                            // Drawing logic for box and text
+                            const box = detection.detection.box;
+                            const text = bestMatch.toString();
+                            new faceapi.draw.DrawBox(box).draw(canvas);
                         });
                     }
 
-                    if (
-                        !foundKnownPersonThisFrame &&
-                        currentlyDisplayedInmate !== null &&
-                        currentlyDisplayedInmate !== "unknown"
-                    ) {
-                        currentlyDisplayedInmate = null;
-                        updateStatus("IDLE", "No known person detected.");
-                        loader.style.display = "none";
-                        detailsImage.src =
-                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=No+Detection";
-                        detailsName.textContent = "N/A";
-                        detailsCategory.textContent = "N/A";
-                        detailsBanduan.textContent = "N/A";
-                        previousLogId = null;
-                    } else if (
-                        resizedDetections.length === 0 &&
-                        currentlyDisplayedInmate !== null &&
-                        currentlyDisplayedInmate !== "idle"
-                    ) {
-                        currentlyDisplayedInmate = "idle";
-                        updateStatus("IDLE", "No faces detected.");
-                        loader.style.display = "none";
-                        detailsImage.src =
-                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=No+Detection";
-                        detailsName.textContent = "N/A";
-                        detailsCategory.textContent = "N/A";
-                        detailsBanduan.textContent = "N/A";
-                        previousLogId = null;
+                    if (!foundKnownPersonThisFrame) {
+                        if (currentlyDisplayedInmate && currentlyDisplayedInmate !== 'unknown') {
+                            if (!clearDetailsTimer) {
+                                clearDetailsTimer = setTimeout(() => {
+                                    updateStatus("IDLE", "No faces detected.");
+                                    detailsImage.src = "https://placehold.co/400x400/2c2c2c/e0e0e0?text=No+Detection";
+                                    detailsName.textContent = "N/A";
+                                    detailsCategory.textContent = "N/A";
+                                    detailsBanduan.textContent = "N/A";
+                                    detailsAdmissionDate.textContent = "N/A";
+                                    detailsReleaseDate.textContent = "N/A";
+                                    detailsCaseNumber.textContent = "N/A";
+                                    currentlyDisplayedInmate = null;
+                                    previousLogId = null;
+                                    clearDetailsTimer = null;
+                                }, 5000);
+                            }
+                        } else if (resizedDetections.length > 0 && currentlyDisplayedInmate !== 'unknown') {
+                             updateStatus("UNKNOWN", "Unknown face detected!");
+                             detailsImage.src = "https://placehold.co/400x400/e0e0e0/2c2c2c?text=UNKNOWN";
+                             detailsName.textContent = "Unknown";
+                             detailsCategory.textContent = "N/A";
+                             detailsBanduan.textContent = "N/A";
+                             detailsAdmissionDate.textContent = "N/A";
+                             detailsReleaseDate.textContent = "N/A";
+                             detailsCaseNumber.textContent = "N/A";
+                             currentlyDisplayedInmate = 'unknown';
+                        } else if (resizedDetections.length === 0) {
+                            if(!currentlyDisplayedInmate) updateStatus("IDLE", "No faces detected.");
+                        }
                     }
                 }, 500);
             });
 
             document.addEventListener("DOMContentLoaded", () => {
-                // --- Toggle Button Logic (Indicator Removed) ---
-                const toggleButtons =
-                    document.querySelectorAll(".toggle-button");
+                const timeEl = document.getElementById("time");
+                const dateEl = document.getElementById("date");
+
+                function updateClock() {
+                    const now = new Date();
+                    timeEl.textContent = now.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    dateEl.textContent = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+                }
+                
+                updateClock();
+                setInterval(updateClock, 1000);
+
+                // --- MODIFIED: Toggle Button Logic ---
+                const toggleButtons = document.querySelectorAll(".toggle-button");
                 let activeToggleButton = null;
 
                 function activateButton(button) {
@@ -656,65 +559,28 @@
                     }
                     button.classList.add("active");
                     activeToggleButton = button;
+                    activeCategory = button.textContent.trim(); // Update global state
                 }
 
                 toggleButtons.forEach((button) => {
                     button.addEventListener("click", () => {
                         if (button === activeToggleButton) return;
-
                         activateButton(button);
+                        recheckCurrentDetectionForFraud(); // Re-validate on category change
 
                         anime({
                             targets: button,
-                            scale: [
-                                {
-                                    value: 0.95,
-                                    duration: 150,
-                                    easing: "easeOutQuad",
-                                },
-                                {
-                                    value: 1,
-                                    duration: 250,
-                                    easing: "easeOutQuad",
-                                },
-                            ],
+                            scale: [{ value: 0.95, duration: 150, easing: "easeOutQuad" }, { value: 1, duration: 250, easing: "easeOutQuad" }],
                         });
                     });
                 });
 
                 if (toggleButtons.length > 0) {
-                    activateButton(toggleButtons[0]);
+                    activateButton(toggleButtons[0]); // Set initial active button
                 }
-
-                // --- Real-Time Clock Logic ---
-                const timeEl = document.getElementById("time");
-                const dateEl = document.getElementById("date");
-
-                function updateClock() {
-                    const now = new Date();
-                    // Time format: 11:53:59 PM
-                    timeEl.textContent = now.toLocaleTimeString('en-US', {
-                        hour12: true,
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit'
-                    });
-                    // Date format: 13 June 2025
-                    dateEl.textContent = now.toLocaleDateString('en-GB', {
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric'
-                    });
-                }
-                
-                updateClock(); // Set time immediately on load
-                setInterval(updateClock, 1000); // Update every second
             });
 
             loadModels();
-            console.log(
-                "Face recognition script loaded. Call loadModels() to start."
-            );
         </script>
     </body>
 </html>
