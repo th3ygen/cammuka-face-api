@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Register & Recognize Face</title>
+
+        <link rel="stylesheet" href="./style-out.css" />
+
+        <script src="./node_modules/face-api.js/dist/face-api.js"></script>
+        <script src="./node_modules/socket.io/client-dist/socket.io.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js"></script>
+
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+
+        <style>
+            /* Custom styles that cannot be directly translated to Tailwind or need specific handling */
+            body {
+                font-family: "Inter", sans-serif;
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+            }
+
+            /* Spinner Animation (can be customized with Tailwind but for direct translation, keeping CSS keyframes) */
+            @keyframes spin {
+                0% {
+                    transform: rotate(0deg);
+                }
+                100% {
+                    transform: rotate(360deg);
+                }
+            }
+            #loader {
+                display: none;
+                border: 5px solid #f3f3f3;
+                border-radius: 50%;
+                border-top: 5px solid #3498db;
+                width: 50px;
+                height: 50px;
+                animation: spin 1s linear infinite;
+                margin: 50px auto;
+            }
+
+            /* Video and Canvas overlay for face detection */
+            .video-container video,
+            .video-container canvas {
+                transform: scaleX(-1); /* Keep the flip for camera feed */
+            }
+
+            /* Animation for new log items */
+            @keyframes fadeInDown {
+                from {
+                    opacity: 0;
+                    transform: translateY(-20px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+            .animate-fade-in-down {
+                animation: fadeInDown 0.5s ease-out forwards;
+            }
+
+            /* Specific style for the video container aspect ratio */
+            .video-aspect-ratio {
+                position: relative;
+                width: 100%;
+                padding-top: 75%; /* 4:3 Aspect Ratio (height / width * 100) */
+            }
+            .video-aspect-ratio video,
+            .video-aspect-ratio canvas {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+            }
+
+            /* Toggle Buttons Redesign */
+            #toggle-buttons-card {
+                position: relative; /* Needed for absolute positioning of indicator */
+                overflow: hidden; /* Hide indicator if it goes out of bounds during animation */
+            }
+
+            .toggle-button {
+                width: 100%; /* Full width */
+                padding-top: 1.5rem; /* Enlarge a bit (py-3 from Tailwind) */
+                padding-bottom: 1.5rem; /* Enlarge a bit (py-3 from Tailwind) */
+                background-color: #1a202c; /* Darker background color (gray-900) */
+                color: #e2e8f0; /* Light text color */
+                font-size: 1.25rem; /* Larger font size */
+                font-weight: 600; /* Semibold */
+                border-radius: 0.75rem; /* Rounded corners */
+                margin-bottom: 0.5rem; /* Tight gap */
+                transition: background-color 0.3s ease, transform 0.1s ease-out; /* Smooth transition for color and tap feedback */
+                position: relative;
+                z-index: 1; /* Ensure buttons are above the indicator */
+            }
+
+            .toggle-button:last-child {
+                margin-bottom: 0; /* No margin on the last button */
+            }
+
+            .toggle-button.active {
+                background-color: #3182ce; /* Slightly brighter active color (blue-600) */
+                color: #ffffff; /* White text for active */
+            }
+
+            /* Indicator Styles */
+            #indicator {
+                position: absolute;
+                left: 0;
+                width: 100%; /* Make it span the width of the card for positioning */
+                height: var(
+                    --button-height,
+                    64px
+                ); /* Will be set dynamically by JS, default to button height */
+                z-index: 0; /* Behind the buttons */
+                pointer-events: none; /* Allows clicks to pass through to buttons */
+            }
+
+            #indicator::before,
+            #indicator::after {
+                content: "";
+                position: absolute;
+                width: 0;
+                height: 0;
+                border-style: solid;
+                top: 50%;
+                transform: translateY(-50%);
+            }
+
+            #indicator::before {
+                border-width: 10px 10px 10px 0; /* right-pointing triangle */
+                border-color: transparent #3182ce transparent transparent; /* active color */
+                left: -10px; /* Position to the left center of the indicator */
+            }
+
+            #indicator::after {
+                border-width: 10px 0 10px 10px; /* left-pointing triangle */
+                border-color: transparent transparent transparent #3182ce; /* active color */
+                right: -10px; /* Position to the right center of the indicator */
+            }
+        </style>
+    </head>
+    <body
+        class="m-0 p-5 box-border w-screen h-screen flex flex-col justify-start items-center bg-gray-900 text-gray-200 overflow-hidden"
+    >
+        <div class="main-container w-full h-[100dvh]">
+            <div
+                id="status-message"
+                class="fixed top-20 left-1/2 -translate-x-1/2 bg-black bg-opacity-80 text-white px-5 py-2 rounded-lg z-50 hidden backdrop-blur-sm text-base"
+            >
+                Loading AI Models...
+            </div>
+
+            <div class="grid grid-cols-5 gap-4 h-full">
+                <div class="col-span-1 min-h-[100px]">
+                    <div
+                        class="ui-section bg-gray-800 p-8 rounded-xl shadow-lg h-full flex items-center justify-center text-gray-400"
+                    >
+                        Empty Card
+                    </div>
+                </div>
+
+                <div class="col-span-3">
+                    <div
+                        id="recognition-status"
+                        class="ui-section bg-gray-700 p-8 rounded-xl shadow-lg text-center font-bold text-5xl transition-colors duration-300 min-h-[100px] flex items-center justify-center"
+                    >
+                        IDLE
+                    </div>
+                </div>
+
+                <div
+                    id="details-section"
+                    class="col-span-1 row-span-2 ui-section bg-gray-800 p-8 rounded-xl shadow-2xl"
+                >
+                    <div id="loader"></div>
+                    <div id="details-card-content">
+                        <img
+                            id="details-image"
+                            src="https://placehold.co/400x400/2c2c2c/e0e0e0?text=No+Detection"
+                            alt="Detected Person"
+                            class="w-full rounded-lg mb-6 border-2 border-gray-700 object-cover aspect-square"
+                        />
+                        <div class="details-text">
+                            <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
+                                <strong>Name:</strong>
+                                <span id="details-name" class="text-blue-400"
+                                    >N/A</span
+                                >
+                            </p>
+                            <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
+                                <strong>Category:</strong>
+                                <span
+                                    id="details-category"
+                                    class="text-blue-400"
+                                    >N/A</span
+                                >
+                            </p>
+                            <p class="my-2 text-lg p-2 rounded-md bg-gray-700">
+                                <strong>No. Banduan:</strong>
+                                <span id="details-banduan" class="text-blue-400"
+                                    >N/A</span
+                                >
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-span-1 flex flex-col gap-4">
+                    <div
+                        id="toggle-buttons-card"
+                        class="ui-section bg-gray-800 p-8 rounded-xl shadow-2xl h-full flex flex-col justify-around"
+                    >
+                        <h3 class="text-xl font-semibold mb-4 text-center">
+                            Actions
+                        </h3>
+                        <div id="indicator"></div>
+                        <button class="toggle-button" data-index="0">
+                            Toggle 1
+                        </button>
+                        <button class="toggle-button" data-index="1">
+                            Toggle 2
+                        </button>
+                        <button class="toggle-button" data-index="2">
+                            Toggle 3
+                        </button>
+                        <button class="toggle-button" data-index="3">
+                            Toggle 4
+                        </button>
+                        <button class="toggle-button" data-index="4">
+                            Toggle 5
+                        </button>
+                    </div>
+                </div>
+
+                <div class="col-span-3 flex flex-col gap-8">
+                    <div
+                        id="recognition-section"
+                        class="ui-section bg-gray-800 p-8 rounded-xl shadow-2xl h-full"
+                    >
+                        <div
+                            class="video-container relative rounded-xl overflow-hidden bg-gray-700 h-full video-aspect-ratio"
+                        >
+                            <video
+                                id="video"
+                                autoplay
+                                muted
+                                playsinline
+                            ></video>
+                            <canvas id="canvas"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // DOM Elements
+            const recognitionStatus =
+                    document.getElementById("recognition-status"),
+                video = document.getElementById("video"),
+                canvas = document.getElementById("canvas"),
+                statusMessage = document.getElementById("status-message"), // Global status
+                loader = document.getElementById("loader"),
+                detailsCardContent = document.getElementById(
+                    "details-card-content"
+                ),
+                detailsImage = document.getElementById("details-image"),
+                detailsName = document.getElementById("details-name"),
+                detailsCategory = document.getElementById("details-category"),
+                detailsBanduan = document.getElementById("details-banduan"),
+                recognitionLog = document.getElementById("recognition-log"); // This element is not in the HTML, might need to be added.
+
+            // State
+            let labeledFaceDescriptors = []; // This will typically be loaded from a pre-trained source
+            let faceMatcher = null;
+            let detectionInterval = null;
+            let isVideoPlaying = false;
+            let currentlyDisplayedInmate = null;
+            let previousLogId = null; // To prevent duplicate log entries for the same detection
+
+            // Map to store face details locally (replace with your actual data source)
+            const faceDetails = new Map();
+
+            const STATUS_COLORS = {
+                IDLE: "bg-gray-700",
+                DETECTED: "bg-green-700",
+                UNKNOWN: "bg-red-700",
+            };
+
+            function updateStatus(status, message = "") {
+                recognitionStatus.textContent = status;
+                recognitionStatus.className = `ui-section p-8 rounded-xl shadow-lg text-center font-bold text-5xl transition-colors duration-300 min-h-[100px] flex items-center justify-center ${STATUS_COLORS[status]}`;
+                if (message) showStatus(message, 3000);
+            }
+
+            function showStatus(message, duration = 3000) {
+                statusMessage.innerText = message;
+                statusMessage.style.display = "block";
+                if (duration)
+                    setTimeout(
+                        () => (statusMessage.style.display = "none"),
+                        duration
+                    );
+            }
+
+            // The `recognitionLog` element is not present in the provided HTML.
+            // I'm adding a placeholder for it, but if you intend to use this,
+            // you'll need to add a `div` with `id="recognition-log"` in your HTML.
+            if (!recognitionLog) {
+                console.warn(
+                    "Element with ID 'recognition-log' not found. Log entries will not be displayed."
+                );
+                // Create a dummy element to prevent errors if the function is called
+                const dummyLog = document.createElement('div');
+                dummyLog.id = 'recognition-log';
+                document.body.appendChild(dummyLog); // Append it somewhere harmless
+                // In a real scenario, you'd want to ensure this is placed correctly
+                // e.g., inside one of your grid columns.
+            }
+
+            function addLogEntry(inmateName, inmateId, imageUrl) {
+                // Prevent adding the same log entry repeatedly if the inmate is continuously detected
+                if (previousLogId === inmateId) {
+                    return;
+                }
+                previousLogId = inmateId; // Update the ID of the last logged inmate
+
+                const logItem = document.createElement("div");
+                logItem.className =
+                    "recognition-log-item flex items-center gap-4 p-3 bg-gray-700 rounded-lg shadow-md animate-fade-in-down";
+                logItem.innerHTML = `
+                <img src="${
+                    imageUrl ||
+                    `https://placehold.co/60x60/333/eee?text=${inmateName.charAt(
+                        0
+                    )}`
+                }" alt="${inmateName}" class="w-16 h-16 rounded-full object-cover border-2 border-gray-600">
+                <div>
+                    <p class="font-semibold text-lg text-white">${inmateName}</p>
+                    <p class="text-sm text-gray-300">ID: ${inmateId}</p>
+                    <p class="text-xs text-gray-400">${new Date().toLocaleString()}</p>
+                </div>
+            `;
+                recognitionLog.prepend(logItem); // Add to the top of the log
+
+                // Limit log entries to keep performance good (e.g., last 10 entries)
+                if (recognitionLog.children.length > 10) {
+                    recognitionLog.removeChild(recognitionLog.lastChild);
+                }
+            }
+
+            // --- WebSocket Setup ---
+            console.log(
+                "Attempting to connect to Data WebSocket at ws://recon.local:1337"
+            );
+            const dataWebSocket = new WebSocket("ws://recon.local:1337");
+            dataWebSocket.onopen = () => {
+                console.log("Data WebSocket connection established.");
+                showStatus("Data connection established.", 2000);
+            };
+            dataWebSocket.onerror = (error) => {
+                console.error("Data WebSocket Error:", error);
+                showStatus("Data WebSocket Error.", null);
+            };
+            dataWebSocket.onclose = () => {
+                console.log("Data WebSocket connection closed.");
+                showStatus("Data connection closed.", null);
+            };
+
+            console.log(
+                "Attempting to connect to Info Socket.IO at http://recon.local:5002"
+            );
+            const infoSocket = io("http://recon.local:5002");
+            infoSocket.on("connect", () => {
+                console.log("Info Socket.IO connection established.");
+                showStatus("Info connection established.", 2000);
+            });
+            infoSocket.on("disconnect", () => {
+                console.log("Info Socket.IO connection lost.");
+                showStatus("Info connection lost.", null);
+            });
+
+            infoSocket.on("match_found", (data) => {
+                console.log("Received match_found event with data:", data);
+                if (currentlyDisplayedInmate === data.inmate_number) {
+                    detailsImage.src =
+                        data.picpath ||
+                        `https://placehold.co/400x400/2c2c2c/e0e0e0?text=${data.name.replace(
+                            " ",
+                            "+"
+                        )}`;
+                    detailsName.textContent = data.name;
+                    detailsCategory.textContent = data.category;
+                    detailsBanduan.textContent = data.inmate_number;
+
+                    loader.style.display = "none";
+                    detailsCardContent.style.display = "block"; // Ensure it's visible
+
+                    addLogEntry(data.name, data.inmate_number, data.picpath); // Add to log when data is received
+                } else {
+                    console.log(
+                        `Ignoring stale match data for ${data.inmate_number}. Currently displaying ${currentlyDisplayedInmate}.`
+                    );
+                }
+            });
+
+            async function loadModels() {
+                const MODEL_URL =
+                    "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
+                try {
+                    updateStatus("IDLE", "Loading AI Models...");
+                    await Promise.all([
+                        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+                        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+                    ]);
+                    updateStatus("IDLE", "Models Loaded! Starting camera...");
+
+                    // IMPORTANT: For this to work, you need a way to load your LabeledFaceDescriptors.
+                    // Since registration is removed, you must load them from a pre-saved JSON.
+                    // For demonstration, I'm providing a placeholder. In a real app, load your 'face_data.json'.
+                    await loadInitialFaceData(); // Load pre-registered faces
+                    startVideoAndRecognition();
+                } catch (error) {
+                    console.error(
+                        "Error loading models or initial face data:",
+                        error
+                    );
+                    updateStatus(
+                        "UNKNOWN",
+                        "Error loading models or face data. Please check console."
+                    );
+                }
+            }
+
+            // Placeholder for loading pre-registered face data (replace with your actual data loading)
+            async function loadInitialFaceData() {
+                try {
+                    // In a real application, you would fetch 'face_data.json' from your server
+                    // or load it from a local file if this is a desktop app.
+                    // For this example, we'll simulate some known faces.
+
+                    // Example of how to create LabeledFaceDescriptors manually
+                    // Replace this with actual loading from a JSON file like:
+                    // const response = await fetch('/face_data.json');
+                    // const data = await response.json();
+                    // labeledFaceDescriptors = data.descriptors.map(d => faceapi.LabeledFaceDescriptors.fromJSON(d));
+                    // You might also populate `faceDetails` from `data.details`
+
+                    // --- Dummy Data for Demonstration ---
+                    const dummyDescriptor1 = Array.from({ length: 128 }, () =>
+                        Math.random()
+                    ); // 128 random floats
+                    const dummyDescriptor2 = Array.from({ length: 128 }, () =>
+                        Math.random()
+                    );
+
+                    labeledFaceDescriptors = [
+                        new faceapi.LabeledFaceDescriptors("100000", [
+                            new Float32Array(dummyDescriptor1),
+                        ]),
+                        new faceapi.LabeledFaceDescriptors("100001", [
+                            new Float32Array(dummyDescriptor2),
+                        ]),
+                    ];
+
+                    // Populate faceDetails for local display (replace with your actual data)
+                    // These details would ideally come from your backend or the loaded JSON
+                    // For now, let's make sure the details are available for `addLogEntry` later
+                    // and to prevent null issues if `match_found` is delayed or doesn't have all info.
+                    faceDetails.set("100000", {
+                        name: "John Doe",
+                        category: "Inmate",
+                        picpath:
+                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=John+Doe",
+                    });
+                    faceDetails.set("100001", {
+                        name: "Jane Smith",
+                        category: "Visitor",
+                        picpath:
+                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=Jane+Smith",
+                    });
+
+                    console.log(
+                        `Loaded ${labeledFaceDescriptors.length} dummy face descriptors.`
+                    );
+                    updateStatus(
+                        "IDLE",
+                        `Ready with ${labeledFaceDescriptors.length} registered faces.`
+                    );
+                } catch (error) {
+                    console.error("Failed to load initial face data:", error);
+                    updateStatus(
+                        "UNKNOWN",
+                        "Failed to load initial face data."
+                    );
+                }
+            }
+
+            async function startVideo() {
+                if (isVideoPlaying) return;
+                try {
+                    video.srcObject = await navigator.mediaDevices.getUserMedia(
+                        {
+                            video: {},
+                        }
+                    );
+                    isVideoPlaying = true;
+                    video.onloadedmetadata = () => {
+                        video.play();
+                    };
+                } catch (err) {
+                    console.error("Error accessing webcam:", err);
+                    updateStatus("UNKNOWN", "Webcam access denied.");
+                }
+            }
+
+            function startVideoAndRecognition() {
+                if (labeledFaceDescriptors.length === 0) {
+                    updateStatus(
+                        "UNKNOWN",
+                        "No faces registered. Please load data."
+                    );
+                    return;
+                }
+
+                faceMatcher = new faceapi.FaceMatcher(
+                    labeledFaceDescriptors,
+                    0.55
+                );
+                updateStatus(
+                    "IDLE",
+                    `Recognition active for ${labeledFaceDescriptors.length} people.`
+                );
+                startVideo();
+            }
+
+            // --- Live Detection & Data Request Flow ---
+            video.addEventListener("play", () => {
+                if (detectionInterval) clearInterval(detectionInterval);
+
+                detectionInterval = setInterval(async () => {
+                    if (!faceMatcher || !isVideoPlaying) return;
+
+                    const displaySize = {
+                        width: video.clientWidth,
+                        height: video.clientHeight,
+                    };
+                    faceapi.matchDimensions(canvas, displaySize);
+                    const detections = await faceapi
+                        .detectAllFaces(
+                            video,
+                            new faceapi.SsdMobilenetv1Options()
+                        )
+                        .withFaceLandmarks()
+                        .withFaceDescriptors();
+                    const resizedDetections = faceapi.resizeResults(
+                        detections,
+                        displaySize
+                    );
+                    const context = canvas.getContext("2d");
+                    context.clearRect(0, 0, canvas.width, canvas.height);
+
+                    let foundKnownPersonThisFrame = false;
+                    if (resizedDetections.length > 0) {
+                        resizedDetections.forEach((detection) => {
+                            const bestMatch = faceMatcher.findBestMatch(
+                                detection.descriptor
+                            );
+                            const box = detection.detection.box;
+
+                            const text = bestMatch.toString();
+                            const anchor = box.topLeft;
+
+                            // Draw only the box with the library
+                            new faceapi.draw.DrawBox(box, {
+                                label: "",
+                                boxColor: "rgba(0, 255, 0, 0.8)",
+                            }).draw(canvas);
+
+                            // Manually draw the text to un-flip it
+                            const font = "18px Inter";
+                            context.font = font;
+                            const textWidth = context.measureText(text).width;
+                            const textHeight = 18;
+                            const padding = 5;
+
+                            const labelX = anchor.x;
+                            const labelY =
+                                anchor.y - (textHeight + 2 * padding);
+
+                            context.save();
+                            context.translate(labelX, labelY);
+                            context.scale(-1, 1); // Flip the context for drawing
+
+                            context.fillStyle = "rgba(0, 255, 0, 0.8)";
+                            context.fillRect(
+                                0,
+                                0,
+                                -(textWidth + 2 * padding),
+                                textHeight + 2 * padding
+                            );
+
+                            context.fillStyle = "white";
+                            context.fillText(
+                                text,
+                                -textWidth - padding,
+                                textHeight
+                            );
+
+                            context.restore(); // Restore the context
+
+                            if (bestMatch.label !== "unknown") {
+                                foundKnownPersonThisFrame = true;
+                                updateStatus(
+                                    "DETECTED",
+                                    `Recognized: ${bestMatch.label}`
+                                );
+                                // If we detect a new person (or the first person)
+                                if (
+                                    currentlyDisplayedInmate !== bestMatch.label
+                                ) {
+                                    currentlyDisplayedInmate = bestMatch.label; // The label is the inmate number
+                                    console.log(
+                                        `Detected inmate: ${currentlyDisplayedInmate}. Sending request...`
+                                    );
+
+                                    loader.style.display = "block";
+                                    // detailsCardContent.style.display = "none"; // Keep visible
+
+                                    // Send inmate number via plain WebSocket
+                                    if (
+                                        dataWebSocket.readyState ===
+                                        WebSocket.OPEN
+                                    ) {
+                                        dataWebSocket.send(
+                                            JSON.stringify({
+                                                number: currentlyDisplayedInmate,
+                                            })
+                                        );
+                                        console.log(
+                                            `Sent to ws://recon.local:1337: { number: currentlyDisplayedInmate }`
+                                        );
+                                    } else {
+                                        console.error(
+                                            "Data WebSocket is not open. Cannot send request."
+                                        );
+                                        showStatus(
+                                            "Data connection lost, check server.",
+                                            null
+                                        );
+                                    }
+                                }
+                            } else {
+                                // If an unknown face is detected, but no known face is found
+                                if (
+                                    !foundKnownPersonThisFrame &&
+                                    currentlyDisplayedInmate !== "unknown"
+                                ) {
+                                    currentlyDisplayedInmate = "unknown"; // Mark as unknown to prevent repeated updates
+                                    updateStatus(
+                                        "UNKNOWN",
+                                        "Unknown face detected!"
+                                    );
+                                    loader.style.display = "none";
+                                    detailsCardContent.style.display = "block"; // Ensure it's visible
+                                    detailsImage.src =
+                                        "https://placehold.co/400x400/e0e0e0/2c2c2c?text=UNKNOWN";
+                                    detailsName.textContent = "Unknown";
+                                    detailsCategory.textContent = "N/A";
+                                    detailsBanduan.textContent = "N/A";
+                                }
+                            }
+                        });
+                    }
+
+                    if (
+                        !foundKnownPersonThisFrame &&
+                        currentlyDisplayedInmate !== null &&
+                        currentlyDisplayedInmate !== "unknown"
+                    ) {
+                        // No known person detected in this frame after a known person was previously displayed
+                        currentlyDisplayedInmate = null; // Reset to null
+                        updateStatus("IDLE", "No known person detected.");
+                        loader.style.display = "none";
+                        // detailsCardContent.style.display = "none"; // Keep visible
+                        detailsImage.src =
+                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=No+Detection";
+                        detailsName.textContent = "N/A";
+                        detailsCategory.textContent = "N/A";
+                        detailsBanduan.textContent = "N/A";
+                        previousLogId = null; // Allow re-logging if the same inmate re-appears
+                    } else if (
+                        resizedDetections.length === 0 &&
+                        currentlyDisplayedInmate !== null &&
+                        currentlyDisplayedInmate !== "idle"
+                    ) {
+                        // No faces detected at all
+                        currentlyDisplayedInmate = "idle"; // Set to 'idle' state for status
+                        updateStatus("IDLE", "No faces detected.");
+                        loader.style.display = "none";
+                        // detailsCardContent.style.display = "none"; // Keep visible
+                        detailsImage.src =
+                            "https://placehold.co/400x400/2c2c2c/e0e0e0?text=No+Detection";
+                        detailsName.textContent = "N/A";
+                        detailsCategory.textContent = "N/A";
+                        detailsBanduan.textContent = "N/A";
+                        previousLogId = null; // Allow re-logging if any inmate re-appears
+                    }
+                }, 500); // Reduced interval for faster updates
+            });
+
+            // --- Anime.js Toggle Button Logic ---
+            const toggleButtons = document.querySelectorAll(".toggle-button");
+            const indicator = document.getElementById("indicator");
+            let activeToggleButton = null;
+
+            function updateIndicatorPosition(button) {
+                const buttonRect = button.getBoundingClientRect();
+                const cardRect = button
+                    .closest("#toggle-buttons-card")
+                    .getBoundingClientRect();
+
+                // Calculate the top position relative to the card's padding-top and h3 height
+                // The h3 has mb-4 (1rem = 16px, so 4rem = 64px) and p-8 (32px top padding).
+                // Let's assume the h3 takes up roughly 24px (text size) + 16px (mb-4) + 32px (card padding-top) = 72px total offset from card top
+                // A safer way is to calculate offset from the first button's top.
+                const firstButton = toggleButtons[0];
+                const firstButtonRect = firstButton.getBoundingClientRect();
+                const initialOffset = firstButtonRect.top - cardRect.top;
+
+
+                // Calculate the target Y position for the indicator relative to its parent (#toggle-buttons-card)
+                const targetY = buttonRect.top - cardRect.top;
+
+                // Set a CSS variable for the indicator height based on the button's height
+                indicator.style.setProperty(
+                    "--button-height",
+                    `${buttonRect.height}px`
+                );
+
+                anime({
+                    targets: indicator,
+                    translateY: targetY,
+                    duration: 500,
+                    easing: "easeInOutQuad",
+                });
+            }
+
+            function activateButton(button) {
+                if (activeToggleButton) {
+                    activeToggleButton.classList.remove("active");
+                }
+                button.classList.add("active");
+                activeToggleButton = button;
+                updateIndicatorPosition(button);
+            }
+
+            toggleButtons.forEach((button, index) => {
+                button.addEventListener("click", () => {
+                    // Micro-interaction feedback
+                    anime({
+                        targets: button,
+                        scale: [
+                            { value: 0.95, duration: 100, easing: "easeOutQuad" },
+                            { value: 1, duration: 200, easing: "easeOutQuad" },
+                        ],
+                        background: [
+                            { value: '#3182ce', duration: 0 }, // Immediately set to active color
+                            { value: '#3182ce', duration: 300 } // Hold active color
+                        ]
+                    });
+
+                    activateButton(button);
+                    console.log(`Toggle Button ${index + 1} clicked.`);
+                    // You can add specific actions for each toggle button here if needed
+                });
+            });
+
+            // Initialize the first button as active and position the indicator
+            document.addEventListener("DOMContentLoaded", () => {
+                if (toggleButtons.length > 0) {
+                    activateButton(toggleButtons[0]);
+                }
+            });
+
+
+            loadModels();
+        </script>
+    </body>
+</html>

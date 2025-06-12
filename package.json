@@ -1,0 +1,19 @@
+{
+  "name": "cammuka-face-api",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@tailwindcss/cli": "^4.1.10",
+    "animejs": "^4.0.2",
+    "face-api.js": "^0.22.2",
+    "socket.io": "^4.8.1",
+    "tailwindcss": "^4.1.10"
+  }
+}
