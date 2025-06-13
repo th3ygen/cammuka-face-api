@@ -5,8 +5,6 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Register & Recognize Face</title>
 
-        <link rel="stylesheet" href="./style-out.css" />
-
         <!-- Using Tailwind CSS via CDN -->
         <script src="https://cdn.tailwindcss.com"></script>
         
@@ -119,17 +117,17 @@
                         class="ui-section bg-gray-800 p-4 rounded-xl shadow-lg h-full flex items-center gap-8 justify-center text-gray-400"
                     >
                     <img src="./assets/logo.png" alt="logo" class="h-20" />
-                    <div class="flex flex-col items-center font-bold">
-                            <div id="time"></div>
-                            <div id="date"></div>
-                        </div>
+                        <div class="flex flex-col items-center font-bold">
+                                <div id="time"></div>
+                                <div id="date"></div>
+                            </div>
                     </div>
                 </div>
 
                 <div class="col-span-3 h-full ">
                     <div
                         id="recognition-status"
-                        class="ui-section bg-gray-700 p-2 h-[200px] rounded-xl shadow-lg text-center font-bold text-5xl transition-colors duration-300 "
+                        class="ui-section bg-gray-700 p-2 h-[200px] rounded-xl shadow-lg text-center font-bold text-5xl transition-colors duration-300 flex items-center justify-center"
                     >
                         IDLE
                     </div>
@@ -252,14 +250,14 @@
                 detailsAdmissionDate = document.getElementById("details-admission-date"),
                 detailsReleaseDate = document.getElementById("details-release-date"),
                 detailsCaseNumber = document.getElementById("details-case-number");
-                
+            
             let recognitionLog = document.getElementById("recognition-log");
             if (!recognitionLog) {
                 recognitionLog = document.createElement("div"); 
             }
 
             // State
-            let labeledFaceDescriptors = [];
+            let faceDescriptorsLabeled = [];
             let faceMatcher = null;
             let detectionInterval = null;
             let isVideoPlaying = false;
@@ -270,18 +268,17 @@
 
             const faceDetails = new Map();
 
-            // --- MODIFIED: Added FRAUD status color ---
             const STATUS_COLORS = {
                 IDLE: "bg-gray-700",
-                DETECTED: "bg-green-700",
+                VERIFYING: "bg-blue-700", // New state for checking category
+                MATCHED: "bg-green-700",
                 UNKNOWN: "bg-yellow-500",
                 'CATEGORY MISMATCH': "bg-red-500", 
             };
 
             function updateStatus(status, message = "") {
-                recognitionStatus.textContent = status;
+                recognitionStatus.textContent = message || status;
                 recognitionStatus.className = `ui-section p-8 rounded-xl h-full shadow-lg text-center font-bold text-5xl transition-colors duration-300 flex items-center justify-center ${STATUS_COLORS[status]}`;
-                // if (message) showStatus(message, 3000);
             }
 
             function showStatus(message, duration = 3000) {
@@ -323,7 +320,6 @@
                 }
             }
             
-            // --- NEW FUNCTION: Checks for category mismatch ---
             function recheckCurrentDetectionForFraud() {
                 if (!currentlyDisplayedInmate || currentlyDisplayedInmate === 'unknown') {
                     return;
@@ -332,19 +328,18 @@
                 const details = faceDetails.get(currentlyDisplayedInmate);
                 const personCategory = details?.serverData?.category;
 
+                // Only check if we have the category data from the server
                 if (!personCategory) {
-                    // We don't have the data from the server yet, so we can't check.
-                    return;
+                    return; // Exit if category info isn't available yet
                 }
                 
-                // Perform the fraud check. "All" is a wildcard and never fraud.
-                const isFraud = activeCategory.toLowerCase() !== 'all' && personCategory.toLowerCase() !== activeCategory.toLowerCase();
+                const isMismatch = activeCategory.toLowerCase() !== 'all' && personCategory.toLowerCase() !== activeCategory.toLowerCase();
 
-                if (isFraud) {
+                if (isMismatch) {
                     updateStatus("CATEGORY MISMATCH", "Category Mismatch");
                 } else {
-                    // If it's not fraud, ensure the status is back to 'DETECTED'.
-                    updateStatus("DETECTED", `Recognized: ${currentlyDisplayedInmate}`);
+                    // It's a valid match for the selected category
+                    updateStatus("MATCHED", `Recognized: ${currentlyDisplayedInmate}`);
                 }
             }
 
@@ -361,12 +356,10 @@
             infoSocket.on("connect", () => { showStatus("Info connection established.", 2000); });
             infoSocket.on("disconnect", () => { showStatus("Info connection lost.", null); });
 
-            // --- MODIFIED: Added fraud check on data arrival ---
             infoSocket.on("match_found", (data) => {
                 console.log("Received match_found event with data:", data);
                 if (currentlyDisplayedInmate === data.inmate_number) {
                     
-                    // Store server data in our map
                     const localDetails = faceDetails.get(data.inmate_number);
                     if(localDetails) {
                         localDetails.serverData = data;
@@ -374,10 +367,9 @@
                         faceDetails.set(data.inmate_number, { serverData: data });
                     }
                     
-                    // Now that we have the category, check for fraud
+                    // Now that we have the category, check for a mismatch
                     recheckCurrentDetectionForFraud();
                     
-                    // Update the details card regardless of fraud status
                     if (localDetails && localDetails.imageUrl) {
                         detailsImage.src = localDetails.imageUrl;
                     } else {
@@ -406,11 +398,11 @@
                     const response = await fetch('face_data.json');
                     if (!response.ok) { throw new Error(`File not found: ${response.status}`); }
                     const data = await response.json();
-                    labeledFaceDescriptors = data.descriptors.map(d => faceapi.LabeledFaceDescriptors.fromJSON(d));
+                    faceDescriptorsLabeled = data.descriptors.map(d => faceapi.LabeledFaceDescriptors.fromJSON(d));
                     if (data.details) {
-                       data.details.forEach(([key, value]) => faceDetails.set(key, value));
+                        data.details.forEach(([key, value]) => faceDetails.set(key, value));
                     }
-                    console.log(`Auto-loaded ${labeledFaceDescriptors.length} people.`);
+                    console.log(`Auto-loaded ${faceDescriptorsLabeled.length} people.`);
                 } catch (error) {
                     console.error('Could not auto-load face data:', error);
                     updateStatus("UNKNOWN", "face_data.json not found.");
@@ -420,15 +412,16 @@
             async function loadModels() {
                 const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
                 try {
-                    updateStatus("IDLE", "Loading AI Models...");
+                    showStatus("Loading AI Models...", null);
                     await Promise.all([
                         faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
                         faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
                         faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
                     ]);
-                    updateStatus("IDLE", "Models Loaded! Loading face data...");
+                    showStatus("Models Loaded! Loading face data...", null);
                     await loadPredefinedFaceData();
                     startVideoAndRecognition();
+                    showStatus("System Ready", 2000);
                 } catch (error) {
                     console.error("Error during startup:", error);
                     updateStatus("UNKNOWN", "Error loading models or face data.");
@@ -440,7 +433,6 @@
                 try {
                     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: {} });
                     isVideoPlaying = true;
-                    video.onloadedmetadata = () => { video.play(); };
                 } catch (err) {
                     console.error("Error accessing webcam:", err);
                     updateStatus("UNKNOWN", "Webcam access denied.");
@@ -448,92 +440,188 @@
             }
 
             function startVideoAndRecognition() {
-                if (labeledFaceDescriptors.length === 0) {
+                if (faceDescriptorsLabeled.length === 0) {
                     updateStatus("UNKNOWN", "No faces registered.");
                     return;
                 }
-                faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.47);
-                updateStatus("IDLE", `Recognition active for ${labeledFaceDescriptors.length} people.`);
+                faceMatcher = new faceapi.FaceMatcher(faceDescriptorsLabeled, 0.44);
+                updateStatus("IDLE", `Recognition active`);
                 startVideo();
             }
 
+            /**
+             * Crops a face and sends it via WebSocket.
+             * @param {HTMLVideoElement} videoElement The video element source.
+             * @param {faceapi.IDetectedObject} detection The detection result from face-api.
+             * @param {string} inmateNumber The recognized inmate number.
+             */
+            function cropAndSendFace(videoElement, detection, inmateNumber) {
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+                const box = detection.box;
+                const scaleX = videoElement.videoWidth / videoElement.clientWidth;
+                const scaleY = videoElement.videoHeight / videoElement.clientHeight;
+                const scaledBox = new faceapi.Box({
+                    x: box.x * scaleX,
+                    y: box.y * scaleY,
+                    width: box.width * scaleX,
+                    height: box.height * scaleY
+                });
+                const PASSPORT_ASPECT_RATIO = 7 / 9;
+                const padding = 0.4;
+                let cropWidth = scaledBox.width * (1 + padding);
+                let cropHeight = scaledBox.height * (1 + padding);
+                if (cropWidth / cropHeight > PASSPORT_ASPECT_RATIO) {
+                    cropHeight = cropWidth / PASSPORT_ASPECT_RATIO;
+                } else {
+                    cropWidth = cropHeight * PASSPORT_ASPECT_RATIO;
+                }
+                tempCanvas.width = cropWidth;
+                tempCanvas.height = cropHeight;
+                const centroidX = scaledBox.x + scaledBox.width / 2;
+                const centroidY = scaledBox.y + scaledBox.height / 2;
+                let sx = centroidX - cropWidth / 2;
+                let sy = centroidY - cropHeight / 2;
+                sx = videoElement.videoWidth - (sx + cropWidth);
+                tempCtx.drawImage(
+                    videoElement,
+                    sx, sy, cropWidth, cropHeight,
+                    0, 0, cropWidth, cropHeight
+                );
+                
+                // Get the complete data URL as a PNG
+                const dataUrl = tempCanvas.toDataURL('image/png');
+                // Remove the "data:image/png;base64," prefix to send only the raw Base64 data
+                const base64Image = dataUrl.split(',')[1]; 
+
+                if (dataWebSocket.readyState === WebSocket.OPEN) {
+                    // Create the payload with the 'captured' key and the clean Base64 string
+                    const payload = {
+                        number: inmateNumber,
+                        captured: base64Image, 
+                    };
+                    console.log(`Sending cropped face for inmate: ${inmateNumber}`);
+                    dataWebSocket.send(JSON.stringify(payload));
+                }
+            }
+
+
             video.addEventListener("play", () => {
                 if (detectionInterval) clearInterval(detectionInterval);
-
+            
                 detectionInterval = setInterval(async () => {
                     if (!faceMatcher || !isVideoPlaying) return;
-
+                
                     const displaySize = { width: video.clientWidth, height: video.clientHeight };
                     faceapi.matchDimensions(canvas, displaySize);
+                
                     const detections = await faceapi.detectAllFaces(video, new faceapi.SsdMobilenetv1Options()).withFaceLandmarks().withFaceDescriptors();
                     const resizedDetections = faceapi.resizeResults(detections, displaySize);
-                    const context = canvas.getContext("2d");
-                    context.clearRect(0, 0, canvas.width, canvas.height);
-
-                    let foundKnownPersonThisFrame = false;
+                    
+                    const ctx = canvas.getContext("2d");
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                    let primaryDetection = null;
+                
                     if (resizedDetections.length > 0) {
-                        resizedDetections.forEach((detection) => {
+                        // Manual drawing to fix flipped label
+                        resizedDetections.forEach(detection => {
                             const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
-                            if (bestMatch.label !== "unknown") {
-                                foundKnownPersonThisFrame = true;
-
-                                if (clearDetailsTimer) {
-                                    clearTimeout(clearDetailsTimer);
-                                    clearDetailsTimer = null;
-                                }
-
-                                if (currentlyDisplayedInmate !== bestMatch.label) {
-                                    currentlyDisplayedInmate = bestMatch.label;
-                                    updateStatus("DETECTED", `Recognized: ${bestMatch.label}`);
-                                    console.log(`Detected inmate: ${currentlyDisplayedInmate}. Sending request...`);
-                                    loader.style.display = "block";
-                                    if (dataWebSocket.readyState === WebSocket.OPEN) {
-                                        dataWebSocket.send(JSON.stringify({ number: currentlyDisplayedInmate }));
-                                    }
-                                }
-                                // Re-check for fraud on every frame in case data has arrived
-                                recheckCurrentDetectionForFraud();
-
-                            }
-                            // Drawing logic for box and text
                             const box = detection.detection.box;
                             const text = bestMatch.toString();
-                            new faceapi.draw.DrawBox(box).draw(canvas);
+                            const { x, y, width, height } = box;
+
+                            ctx.strokeStyle = 'rgba(0, 255, 0, 1)';
+                            ctx.lineWidth = 2;
+                            ctx.strokeRect(x, y, width, height);
+
+                            if (!text) return;
+
+                            ctx.save();
+                            const fontSize = 16;
+                            ctx.font = `bold ${fontSize}px Inter`;
+                            const textMetrics = ctx.measureText(text);
+                            const textWidth = textMetrics.width;
+                            const textHeight = fontSize;
+                            const padding = 5;
+
+                            ctx.translate(x + width, y);
+                            ctx.scale(-1, 1);
+                            
+                            ctx.fillStyle = 'rgba(0, 255, 0, 1)';
+                            const rectY = -textHeight - padding;
+                            ctx.fillRect(0, rectY, textWidth + (padding * 2), textHeight + padding);
+                            
+                            ctx.fillStyle = 'white';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText( text, padding, rectY + (textHeight / 2) + (padding/2));
+                            ctx.restore();
+                        });
+
+                        // Identify the largest face for processing
+                        primaryDetection = resizedDetections.reduce((largest, current) => {
+                            const largestArea = largest.detection.box.width * largest.detection.box.height;
+                            const currentArea = current.detection.box.width * current.detection.box.height;
+                            return currentArea > largestArea ? current : largest;
                         });
                     }
-
-                    if (!foundKnownPersonThisFrame) {
-                        if (currentlyDisplayedInmate && currentlyDisplayedInmate !== 'unknown') {
-                            if (!clearDetailsTimer) {
-                                clearDetailsTimer = setTimeout(() => {
-                                    updateStatus("IDLE", "No faces detected.");
-                                    detailsImage.src = "https://placehold.co/400x400/2c2c2c/e0e0e0?text=No+Detection";
-                                    detailsName.textContent = "N/A";
-                                    detailsCategory.textContent = "N/A";
-                                    detailsBanduan.textContent = "N/A";
-                                    detailsAdmissionDate.textContent = "N/A";
-                                    detailsReleaseDate.textContent = "N/A";
-                                    detailsCaseNumber.textContent = "N/A";
-                                    currentlyDisplayedInmate = null;
-                                    previousLogId = null;
-                                    clearDetailsTimer = null;
-                                }, 5000);
+                
+                    if (primaryDetection) {
+                        const bestMatch = faceMatcher.findBestMatch(primaryDetection.descriptor);
+                
+                        if (bestMatch.label !== "unknown") {
+                            if (clearDetailsTimer) {
+                                clearTimeout(clearDetailsTimer);
+                                clearDetailsTimer = null;
                             }
-                        } else if (resizedDetections.length > 0 && currentlyDisplayedInmate !== 'unknown') {
-                             updateStatus("UNKNOWN", "Unknown face detected!");
-                             detailsImage.src = "https://placehold.co/400x400/e0e0e0/2c2c2c?text=UNKNOWN";
-                             detailsName.textContent = "Unknown";
-                             detailsCategory.textContent = "N/A";
-                             detailsBanduan.textContent = "N/A";
-                             detailsAdmissionDate.textContent = "N/A";
-                             detailsReleaseDate.textContent = "N/A";
-                             detailsCaseNumber.textContent = "N/A";
-                             currentlyDisplayedInmate = 'unknown';
-                        } else if (resizedDetections.length === 0) {
-                            if(!currentlyDisplayedInmate) updateStatus("IDLE", "No faces detected.");
+                
+                            // If a new person is detected, go into a "VERIFYING" state
+                            if (currentlyDisplayedInmate !== bestMatch.label) {
+                                currentlyDisplayedInmate = bestMatch.label;
+                                updateStatus("VERIFYING", `Recognized: ${bestMatch.label}`);
+                                console.log(`New face detected: ${currentlyDisplayedInmate}. Sending request...`);
+                                
+                                loader.style.display = "block";
+                                detailsCardContent.style.display = "none";
+
+                                cropAndSendFace(video, primaryDetection.detection, currentlyDisplayedInmate);
+                            }
+
+                            // Always re-check fraud status on every frame for the current person.
+                            // This will update the status once server data arrives.
+                            recheckCurrentDetectionForFraud();
+
+                        } else { // Handle "unknown" face
+                            if (currentlyDisplayedInmate !== 'unknown') {
+                                updateStatus("UNKNOWN", "Unknown face detected!");
+                                detailsImage.src = "https://placehold.co/400x400/e0e0e0/2c2c2c?text=UNKNOWN";
+                                detailsName.textContent = "Unknown";
+                                detailsCategory.textContent = "N/A";
+                                detailsBanduan.textContent = "N/A";
+                                detailsAdmissionDate.textContent = "N/A";
+                                detailsReleaseDate.textContent = "N/A";
+                                detailsCaseNumber.textContent = "N/A";
+                                currentlyDisplayedInmate = 'unknown';
+                            }
+                        }
+                    } else { // Handle no face detected
+                        if (currentlyDisplayedInmate && !clearDetailsTimer) {
+                            clearDetailsTimer = setTimeout(() => {
+                                updateStatus("IDLE");
+                                detailsImage.src = "https://placehold.co/400x400/2c2c2c/e0e0e0?text=No+Detection";
+                                detailsName.textContent = "N/A";
+                                detailsCategory.textContent = "N/A";
+                                detailsBanduan.textContent = "N/A";
+                                detailsAdmissionDate.textContent = "N/A";
+                                detailsReleaseDate.textContent = "N/A";
+                                detailsCaseNumber.textContent = "N/A";
+                                currentlyDisplayedInmate = null;
+                                previousLogId = null;
+                                clearDetailsTimer = null;
+                            }, 3000); 
                         }
                     }
-                }, 500);
+                }, 500); 
             });
 
             document.addEventListener("DOMContentLoaded", () => {
@@ -542,14 +630,13 @@
 
                 function updateClock() {
                     const now = new Date();
-                    timeEl.textContent = now.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    dateEl.textContent = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+                    timeEl.textContent = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Kuala_Lumpur', hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    dateEl.textContent = now.toLocaleDateString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: 'numeric', month: 'long', year: 'numeric' });
                 }
                 
                 updateClock();
                 setInterval(updateClock, 1000);
 
-                // --- MODIFIED: Toggle Button Logic ---
                 const toggleButtons = document.querySelectorAll(".toggle-button");
                 let activeToggleButton = null;
 
@@ -559,14 +646,14 @@
                     }
                     button.classList.add("active");
                     activeToggleButton = button;
-                    activeCategory = button.textContent.trim(); // Update global state
+                    activeCategory = button.textContent.trim(); 
                 }
 
                 toggleButtons.forEach((button) => {
                     button.addEventListener("click", () => {
                         if (button === activeToggleButton) return;
                         activateButton(button);
-                        recheckCurrentDetectionForFraud(); // Re-validate on category change
+                        recheckCurrentDetectionForFraud(); 
 
                         anime({
                             targets: button,
@@ -576,7 +663,7 @@
                 });
 
                 if (toggleButtons.length > 0) {
-                    activateButton(toggleButtons[0]); // Set initial active button
+                    activateButton(toggleButtons[0]); 
                 }
             });
 
